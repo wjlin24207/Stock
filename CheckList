@@ -1,0 +1,174 @@
+import requests
+import yfinance as yf
+import pandas as pd
+import urllib3
+import os
+import time
+import random
+from datetime import datetime
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 定義顏色代碼
+RED = "\033[31m"
+GREEN = "\033[32m"
+RESET = "\033[0m"
+
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+})
+
+def pad_chinese(text, target_len):
+    """ 處理中英文混合對齊 """
+    actual_len = 0
+    for char in text:
+        if ord(char) > 127: actual_len += 2
+        else: actual_len += 1
+    return text + ' ' * max(0, target_len - actual_len)
+
+def get_all_live_prices(stock_list):
+    """ 批量抓取證交所價格 (一輪僅 1 次請求) """
+    ex_ch_list = []
+    for sid in stock_list:
+        if sid == "^TWII": ex_ch_list.append("tse_t00.tw")
+        else:
+            ex_ch_list.append(f"tse_{sid}.tw")
+            ex_ch_list.append(f"otc_{sid}.tw")
+    
+    joined_ch = "|".join(ex_ch_list)
+    url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={joined_ch}&json=1&delay=0&_={int(time.time()*1000)}"
+    try:
+        res = session.get(url, timeout=10, verify=False)
+        data = res.json()
+        price_map = {}
+        if 'msgArray' in data:
+            for info in data['msgArray']:
+                key = info.get('c')
+                if key == 't00': key = '^TWII'
+                price_map[key] = info
+        return price_map
+    except: return {}
+
+def get_all_yahoo_hist(stock_list):
+    """ 批量抓取 Yahoo 歷史資料 """
+    tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
+    # 下載多支股票資料
+    data = yf.download(tickers, period="6mo", interval="1d", progress=False, group_by='ticker', auto_adjust=True)
+    return data
+
+def process_kd_logic(stock_id, live_info, hist_df):
+    """ 
+    保留原本手寫 KD 公式，修正批量抓取的索引對齊問題
+    """
+    try:
+        if hist_df is None or hist_df.empty: return {"success": False, "msg": "Yahoo無資料"}
+        
+        # --- 關鍵修正：剔除批量抓取導致的空值 (因不同市場休假日不同產生的 NaN) ---
+        hist = hist_df.dropna().copy() 
+        hist.columns = [c.lower() for c in hist.columns]
+
+        # --- 價格提取 ---
+        info = live_info
+        z_str = info.get('z', '-')
+        b_str = info.get('b', '-').split('_')[0] if info.get('b') else '-'
+        y_str = info.get('y', '0')
+
+        if z_str not in ['-', '']: live_price = float(z_str)
+        elif b_str not in ['-', '']: live_price = float(b_str)
+        else: live_price = float(y_str)
+
+        live_high = float(info.get('h', live_price)) if info.get('h') not in ['-', ''] else live_price
+        live_low = float(info.get('l', live_price)) if info.get('l') not in ['-', ''] else live_price
+        y_price = float(y_str)
+
+        # --- 3. 精準手寫 KD 公式 (維持不變) ---
+        temp_df = hist.copy().astype(float)
+        
+        # 覆蓋最後一筆為即時資料
+        temp_df.iloc[-1, temp_df.columns.get_loc('close')] = live_price
+        temp_df.iloc[-1, temp_df.columns.get_loc('high')] = live_high
+        temp_df.iloc[-1, temp_df.columns.get_loc('low')] = live_low
+        
+        temp_df['9h'] = temp_df['high'].rolling(window=9).max()
+        temp_df['9l'] = temp_df['low'].rolling(window=9).min()
+        
+        temp_df['rsv'] = 100 * (temp_df['close'] - temp_df['9l']) / (temp_df['9h'] - temp_df['9l'] + 1e-9)
+        temp_df['rsv'] = temp_df['rsv'].fillna(50)
+
+        k_list, d_list = [], []
+        last_k, last_d = 50.0, 50.0
+        for rsv in temp_df['rsv']:
+            current_k = last_k * (2/3) + rsv * (1/3)
+            current_d = last_d * (2/3) + current_k * (1/3)
+            k_list.append(current_k)
+            d_list.append(current_d)
+            last_k, last_d = current_k, current_d
+
+        k_val, d_val = k_list[-1], d_list[-1]
+
+        # --- 4. 訊號與顯示 ---
+        status_signals = []
+        if k_val < 30: status_signals.append("⚠️ 超賣")
+        elif k_val > 80: status_signals.append("🔥 超買")
+        status_signals.append("📈 多方" if k_val > d_val else "📉 空方")
+
+        diff = live_price - y_price
+        percent = (diff / y_price * 100) if y_price > 0 else 0.0
+        color = RED if diff > 0 else GREEN if diff < 0 else RESET
+        
+        raw_name = info.get('n', stock_id)
+        disp_name = "加權指數" if stock_id == "^TWII" else raw_name
+
+        return {
+            "success": True, "id": stock_id, "name": disp_name, "price": live_price,
+            "diff": diff, "percent": percent, "symbol": "▲" if diff > 0 else "▼" if diff < 0 else " ",
+            "k": round(k_val, 2), "d": round(d_val, 2),
+            "signal": " | ".join(status_signals), "color": color
+        }
+    except Exception as e:
+        return {"success": False, "msg": f"錯誤:{str(e)[:15]}"}
+
+# --- 執行監控 ---
+target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L"]
+update_interval = 30
+
+try:
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print("=" * 105)
+        print(f"📊 策略監控儀表板 (批量抓取優化版) | 刷新時間: {datetime.now().strftime('%H:%M:%S')}")
+        print("-" * 105)
+        print(f"{'代號':<8} {'名稱':<13} {'價格':>10}       {'漲跌(%)':<17} |  {'K值':>4} {'D值':>6}  |     {'決策訊號'}")
+        print("-" * 105)
+
+        # 批量抓取兩大數據源
+        all_prices = get_all_live_prices(target_stocks)
+        all_hists = get_all_yahoo_hist(target_stocks)
+
+        for sid in target_stocks:
+            live_info = all_prices.get(sid)
+            ticker_key = f"{sid}.TW" if not sid.startswith("^") else sid
+            
+            # 從批量下載的資料中提取該股票資料
+            if ticker_key in all_hists.columns.levels[0]:
+                hist_df = all_hists[ticker_key]
+            else:
+                hist_df = None
+
+            if live_info and hist_df is not None:
+                result = process_kd_logic(sid, live_info, hist_df)
+                if result and result["success"]:
+                    c, s = result["color"], result["symbol"]
+                    change_txt = f"{s} {abs(result['diff']):.2f} ({result['percent']:.2f}%)"
+                    print(f"{result['id']:<8} {pad_chinese(result['name'], 20)} {c}{result['price']:>10.2f}{RESET}   {c}{change_txt:<22}{RESET} | {result['k']:>7} {result['d']:>7} | {result['signal']}")
+                else:
+                    print(f"{sid:<8} | ❌ {result.get('msg', '處理失敗')}")
+            else:
+                print(f"{sid:<8} | ❌ 數據源缺失")
+
+        print("-" * 105)
+        print(f"⏳ 每 {update_interval} 秒自動刷新... (Ctrl+C 結束)")
+        time.sleep(update_interval)
+except KeyboardInterrupt:
+    print(f"\n{RESET}👋 監控已停止。")

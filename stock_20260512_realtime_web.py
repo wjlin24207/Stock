@@ -175,7 +175,7 @@ def color_ma(val, price):
 
 
 # ===== 主程式 =====
-target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L", "2885", "9958"]
+target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L"]
 
 taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))

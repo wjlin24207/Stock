@@ -158,22 +158,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return None
 
 
-# ===== 顏色函數（重要）=====
-def color(val):
-    if val > 0:
-        return "color:red"
-    elif val < 0:
-        return "color:green"
-    return ""
-
-def color_ma(val, price):
-    if val < price:
-        return "color:red"
-    elif val > price:
-        return "color:green"
-    return ""
-
-
 # ===== 主程式 =====
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L"]
 
@@ -206,6 +190,19 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
+# ===== ✅ 代號變超連結 =====
+def make_id_link(row):
+    sid = row["代號"]
+
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+
+    return f'<a href="{url}" target="_blank">{sid}</a>'
+
+df["代號"] = df.apply(make_id_link, axis=1)
+
 
 if df.empty:
     st.error("❌ 抓不到資料")
@@ -213,7 +210,7 @@ else:
     styled = df.style.format({
         "價格": "{:,.2f}",
         "漲跌": "{:+,.2f}",
-        "漲幅%": "{:+.2f}%",
+        "漲幅%": "{:+,.2f}%",
         "K": "{:.2f}",
         "D": "{:.2f}",
         "MA5": "{:.2f}",
@@ -221,7 +218,6 @@ else:
         "MA20": "{:.2f}"
     })
 
-    # ===== 漲跌顏色 =====
     def color(val):
         if val > 0:
             return "color:red"
@@ -231,23 +227,16 @@ else:
 
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-    # ===== ✅ 價格顏色（跟漲跌走）=====
     def apply_price(row):
         diff = df.loc[row.name, "漲跌"]
-
         if diff > 0:
             return ["color:red; font-weight:bold"]
         elif diff < 0:
             return ["color:green; font-weight:bold"]
         return [""]
 
-    styled = styled.apply(
-        apply_price,
-        subset=["價格"],
-        axis=1
-    )
+    styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-    # ===== ✅ 均線顏色 =====
     def color_ma(val, price):
         if val < price:
             return "color:red"
@@ -257,21 +246,16 @@ else:
 
     def apply_ma(row):
         price = df.loc[row.name, "價格"]
-
         return [
             color_ma(row["MA5"], price),
             color_ma(row["MA10"], price),
             color_ma(row["MA20"], price),
         ]
 
-    styled = styled.apply(
-        apply_ma,
-        subset=["MA5", "MA10", "MA20"],
-        axis=1
-    )
+    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # ===== 顯示 =====
-    st.dataframe(styled, use_container_width=True)
+    # ✅ 用 markdown 才能點連結
+    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 
 time.sleep(30)

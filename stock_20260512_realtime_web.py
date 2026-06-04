@@ -226,6 +226,11 @@ def make_name_link(row):
 df["名稱/成份股"] = df.apply(make_name_link, axis=1)
 df["代號/K線"] = df.apply(make_id_link, axis=1)
 
+
+# 刪掉暫存欄位
+df = df.drop(columns=["代號_raw"])
+
+
 if df.empty:
     st.error("❌ 抓不到資料")
 else:

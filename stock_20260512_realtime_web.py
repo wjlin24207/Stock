@@ -141,7 +141,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         return {
             "代號": stock_id,
-            "名稱": name,  # ✅ 先放原始名稱
+            "名稱": name,
             "價格": round(live_price, 2),
             "漲跌": round(diff, 2),
             "漲幅%": round(percent, 2),
@@ -190,8 +190,8 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-# ===== ✅ 名稱變超連結 =====
-def make_name_link(row):
+# ===== ✅ 代號變超連結 =====
+def make_id_link(row):
     sid = row["代號"]
 
     if sid == "^TWII":
@@ -199,9 +199,9 @@ def make_name_link(row):
     else:
         url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
 
-    return f'<a href="{url}" target="_blank">{row["名稱"]}</a>'
+    return f'<a href="{url}" target="_blank">{sid}</a>'
 
-df["名稱"] = df.apply(make_name_link, axis=1)
+df["代號"] = df.apply(make_id_link, axis=1)
 
 
 if df.empty:
@@ -210,7 +210,7 @@ else:
     styled = df.style.format({
         "價格": "{:,.2f}",
         "漲跌": "{:+,.2f}",
-        "漲幅%": "{:+.2f}%",
+        "漲幅%": "{:+,.2f}%",
         "K": "{:.2f}",
         "D": "{:.2f}",
         "MA5": "{:.2f}",
@@ -218,7 +218,6 @@ else:
         "MA20": "{:.2f}"
     })
 
-    # 漲跌顏色
     def color(val):
         if val > 0:
             return "color:red"
@@ -228,7 +227,6 @@ else:
 
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-    # 價格顏色
     def apply_price(row):
         diff = df.loc[row.name, "漲跌"]
         if diff > 0:
@@ -239,7 +237,6 @@ else:
 
     styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-    # 均線顏色
     def color_ma(val, price):
         if val < price:
             return "color:red"
@@ -257,7 +254,7 @@ else:
 
     styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # ✅ 用 markdown 才能點
+    # ✅ 用 markdown 才能點連結
     st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 

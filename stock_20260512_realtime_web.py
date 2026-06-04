@@ -43,7 +43,6 @@ def get_all_live_prices(stock_list):
         return {}
 
 
-# ===== Yahoo 歷史資料 =====
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
     return yf.download(
@@ -56,7 +55,6 @@ def get_all_yahoo_hist(stock_list):
     )
 
 
-# ===== KD + 策略 =====
 def process_kd_logic(stock_id, live_info, hist_df):
     try:
         if hist_df is None or hist_df.empty:
@@ -108,7 +106,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
         percent = (diff / y_price * 100) if y_price > 0 else 0
 
         signal = []
-
         signal.append("📈 KD多方" if k > d else "📉 KD空方")
 
         if k < 30:
@@ -120,13 +117,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
             signal.append("✨ 均線黃金交叉")
         elif ma5_y >= ma10_y and ma5_t < ma10_t:
             signal.append("❌ 均線死亡交叉")
-
-        ma_values = [ma5_t, ma10_t, ma20_t]
-        ma_max = max(ma_values)
-        ma_min = min(ma_values)
-
-        if live_price > 0 and (ma_max - ma_min) / live_price < 0.02:
-            signal.append("🟡 均線糾結")
 
         if live_price > ma5_t > ma10_t > ma20_t:
             ma_status = "🚀 均線多頭"
@@ -190,9 +180,20 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-# ✅ 代號變連結（正確寫法）
+
+df = df.rename(columns={
+    "代號": "代號/K線",
+    "名稱": "名稱/成份股"
+})
+
+
+# ✅ 保留原始代號（關鍵）
+df["代號_raw"] = df["代號/K線"]
+
+# ===== ✅ 代號 → K線 =====
 def make_id_link(row):
-    sid = row["代號"]
+
+    sid = row["代號_raw"]
 
     if sid == "^TWII":
         url = "https://tw.stock.yahoo.com/tw-market"
@@ -201,8 +202,29 @@ def make_id_link(row):
 
     return f'<a href="{url}" target="_blank">{sid}</a>'
 
-df["代號"] = df.apply(make_id_link, axis=1)
 
+# ===== ✅ 名稱 → ETF成分股 =====
+
+def make_name_link(row):
+    sid = row["代號_raw"]
+    name = row["名稱/成份股"]
+
+    # ✅ 先設預設值
+    url = None
+
+    if str(sid).startswith("00"):
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
+
+    # ✅ 有 URL 才做連結
+    if url:
+        return f'<a href="{url}" target="_blank">{name}</a>'
+
+    return name
+
+
+
+df["名稱/成份股"] = df.apply(make_name_link, axis=1)
+df["代號/K線"] = df.apply(make_id_link, axis=1)
 
 if df.empty:
     st.error("❌ 抓不到資料")
@@ -219,59 +241,37 @@ else:
     })
 
     def color(val):
-        if val > 0:
-            return "color:red"
-        elif val < 0:
-            return "color:green"
-        return ""
+        return "color:red" if val > 0 else "color:green" if val < 0 else ""
 
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
     def apply_price(row):
         diff = df.loc[row.name, "漲跌"]
-        if diff > 0:
-            return ["color:red; font-weight:bold"]
-        elif diff < 0:
-            return ["color:green; font-weight:bold"]
-        return [""]
+        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
 
     styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
     def color_ma(val, price):
-        if val < price:
-            return "color:red"
-        elif val > price:
-            return "color:green"
-        return ""
+        return "color:red" if val < price else "color:green" if val > price else ""
 
     def apply_ma(row):
         price = df.loc[row.name, "價格"]
         return [
             color_ma(row["MA5"], price),
             color_ma(row["MA10"], price),
-            color_ma(row["MA20"], price),
+            color_ma(row["MA20"], price)
         ]
 
     styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # ✅ ✅ ✅ CSS：欄寬自動 + 不換行 + 可滑動
     st.markdown("""
 <style>
-table {
-    width: 100% !important;
-    table-layout: auto;
-}
-td, th {
-    white-space: nowrap;
-    font-size: 14px;
-}
-div[data-testid="stMarkdownContainer"] {
-    overflow-x: auto;
-}
+table { width: 100% !important; table-layout: auto; }
+td, th { white-space: nowrap; font-size: 14px; }
+div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
 </style>
 """, unsafe_allow_html=True)
 
-    # ✅ 顯示表格
     st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 

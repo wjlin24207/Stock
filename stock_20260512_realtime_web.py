@@ -128,7 +128,13 @@ def process_kd_logic(stock_id, live_info, hist_df):
 # ===== 主程式 =====
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L"]
 
-st.write("更新時間：", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+from datetime import datetime, timedelta
+
+taiwan_time = datetime.utcnow() + timedelta(hours=8)
+
+st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
+
 
 if st.button("🔄 手動刷新"):
     st.rerun()

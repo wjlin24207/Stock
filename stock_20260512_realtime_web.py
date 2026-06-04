@@ -151,7 +151,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
             "MA10": round(ma10_t, 2),
             "MA20": round(ma20_t, 2),
             "均線狀態": ma_status,
-            "訊號": " | ".join(signal)
+            "KD訊號": " | ".join(signal)
         }
 
     except:

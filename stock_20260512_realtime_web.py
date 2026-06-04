@@ -255,6 +255,36 @@ else:
     styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
     # ✅ 用 markdown 才能點連結
+    
+    
+    st.markdown("""
+    <style>
+    table {
+        width: 100% !important;
+        table-layout: auto;   /* ✅ 改這個 */
+    }
+    
+    /* 不換行 + 超出隱藏 */
+    td, th {
+        white-space: nowrap;      /* ✅ 不換行 */
+        overflow: hidden;         /* ✅ 超出隱藏 */
+        text-overflow: ellipsis;  /* ✅ 顯示 ... */
+        font-size: 14px;
+    }
+    
+    /* 讓表格可以橫向滑動（手機關鍵🔥） */
+    div[data-testid="stMarkdownContainer"] {
+        overflow-x: auto;
+    }
+    
+    /* 代號欄固定寬 */
+    td:nth-child(1), th:nth-child(1) {
+        min-width: 70px;
+        max-width: 90px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 

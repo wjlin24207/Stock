@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板")
+st.title("📊 策略監控儀表板（專業版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -141,7 +141,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         return {
             "代號": stock_id,
-            "名稱": name,
+            "名稱": name,  # ✅ 先放原始名稱
             "價格": round(live_price, 2),
             "漲跌": round(diff, 2),
             "漲幅%": round(percent, 2),
@@ -151,27 +151,11 @@ def process_kd_logic(stock_id, live_info, hist_df):
             "MA10": round(ma10_t, 2),
             "MA20": round(ma20_t, 2),
             "均線狀態": ma_status,
-            "KD訊號": " | ".join(signal)
+            "訊號": " | ".join(signal)
         }
 
     except:
         return None
-
-
-# ===== 顏色函數（重要）=====
-def color(val):
-    if val > 0:
-        return "color:red"
-    elif val < 0:
-        return "color:green"
-    return ""
-
-def color_ma(val, price):
-    if val < price:
-        return "color:red"
-    elif val > price:
-        return "color:green"
-    return ""
 
 
 # ===== 主程式 =====
@@ -206,6 +190,19 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
+# ===== ✅ 名稱變超連結 =====
+def make_name_link(row):
+    sid = row["代號"]
+
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+
+    return f'<a href="{url}" target="_blank">{row["名稱"]}</a>'
+
+df["名稱"] = df.apply(make_name_link, axis=1)
+
 
 if df.empty:
     st.error("❌ 抓不到資料")
@@ -221,7 +218,7 @@ else:
         "MA20": "{:.2f}"
     })
 
-    # ===== 漲跌顏色 =====
+    # 漲跌顏色
     def color(val):
         if val > 0:
             return "color:red"
@@ -231,23 +228,18 @@ else:
 
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-    # ===== ✅ 價格顏色（跟漲跌走）=====
+    # 價格顏色
     def apply_price(row):
         diff = df.loc[row.name, "漲跌"]
-
         if diff > 0:
             return ["color:red; font-weight:bold"]
         elif diff < 0:
             return ["color:green; font-weight:bold"]
         return [""]
 
-    styled = styled.apply(
-        apply_price,
-        subset=["價格"],
-        axis=1
-    )
+    styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-    # ===== ✅ 均線顏色 =====
+    # 均線顏色
     def color_ma(val, price):
         if val < price:
             return "color:red"
@@ -257,21 +249,16 @@ else:
 
     def apply_ma(row):
         price = df.loc[row.name, "價格"]
-
         return [
             color_ma(row["MA5"], price),
             color_ma(row["MA10"], price),
             color_ma(row["MA20"], price),
         ]
 
-    styled = styled.apply(
-        apply_ma,
-        subset=["MA5", "MA10", "MA20"],
-        axis=1
-    )
+    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # ===== 顯示 =====
-    st.dataframe(styled, use_container_width=True)
+    # ✅ 用 markdown 才能點
+    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 
 time.sleep(30)

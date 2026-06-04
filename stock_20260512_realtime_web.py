@@ -190,7 +190,7 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-# ===== ✅ 代號變超連結 =====
+# ✅ 代號變連結（正確寫法）
 def make_id_link(row):
     sid = row["代號"]
 
@@ -254,7 +254,24 @@ else:
 
     styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # ✅ 用 markdown 才能點連結
+    # ✅ ✅ ✅ CSS：欄寬自動 + 不換行 + 可滑動
+    st.markdown("""
+<style>
+table {
+    width: 100% !important;
+    table-layout: auto;
+}
+td, th {
+    white-space: nowrap;
+    font-size: 14px;
+}
+div[data-testid="stMarkdownContainer"] {
+    overflow-x: auto;
+}
+</style>
+""", unsafe_allow_html=True)
+
+    # ✅ 顯示表格
     st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 

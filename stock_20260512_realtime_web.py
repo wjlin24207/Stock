@@ -209,18 +209,18 @@ else:
                 {row["價格"]} ({row["漲跌"]:+} / {row["漲幅%"]}%)
             </div>
 
-            <div style=font-size:20px;"margin-top:10px;">
+            <div style=font-size:20px;"margin-top:12px;">
                 📊 K: {row["K"]} ｜ D: {row["D"]}
             </div>
 
-            <div style=font-size:20px;"margin-top:10px; line-height:1.6;">
+            <div style=font-size:20px;"margin-top:12px; line-height:1.6;">
                 📉 MA5: {row["MA5"]}<br>
                 📉 MA10: {row["MA10"]}<br>
                 📉 MA20: {row["MA20"]}
             </div>
 
-            <div style=font-size:20px;"margin-top:10px;">
-                {row["均線狀態"]}
+            <div style=font-size:20px;"margin-top:14px;">
+                {row["均線狀態","訊號"]}
             </div>
 
             <div style=font-size:20px;"margin-top:8px;">

@@ -175,8 +175,7 @@ df = pd.DataFrame(rows)
 # ✅ 卡片顯示
 import streamlit.components.v1 as components
 # ✅ 卡片顯示
-i
-f df.empty:
+if df.empty:
     st.error("❌ 抓不到資料")
 else:
     for _, row in df.iterrows():

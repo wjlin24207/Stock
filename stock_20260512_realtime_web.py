@@ -175,7 +175,8 @@ df = pd.DataFrame(rows)
 # ✅ 卡片顯示
 import streamlit.components.v1 as components
 # ✅ 卡片顯示
-if df.empty:
+i
+f df.empty:
     st.error("❌ 抓不到資料")
 else:
     for _, row in df.iterrows():
@@ -198,6 +199,7 @@ else:
             color:white;
             font-family:sans-serif;
         ">
+
             <div style="font-size:18px;font-weight:bold;">
                 <a href="{k_url}" target="_blank" style="color:#4da6ff;text-decoration:none;">
                     {row["代號"]} {row["名稱"]}
@@ -212,21 +214,25 @@ else:
                 📊 K: {row["K"]} ｜ D: {row["D"]}
             </div>
 
-            <div>
-                📉 MA5: {row["MA5"]} ｜ MA10: {row["MA10"]} ｜ MA20: {row["MA20"]}
+            <div style="margin-top:6px; line-height:1.6;">
+                📉 MA5: {row["MA5"]}<br>
+                📉 MA10: {row["MA10"]}<br>
+                📉 MA20: {row["MA20"]}
             </div>
 
-            <div style="margin-top:5px;">
+            <div style="margin-top:6px;">
                 {row["均線狀態"]}
             </div>
 
-            <div style="margin-top:5px;">
+            <div style="margin-top:6px;">
                 {row["訊號"]}
             </div>
+
         </div>
         """
 
         components.html(html, height=250)
+
 
 
 time.sleep(30)

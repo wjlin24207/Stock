@@ -222,7 +222,7 @@ else:
 
 
             <div style="font-size:20px; margin-top:14px;">
-                {row["均線狀態"]}&nbsp;&nbsp;&nbsp;&nbsp;{row["訊號"]}
+                {row["均線狀態"]}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{row["訊號"]}
             </div>
 
 

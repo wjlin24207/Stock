@@ -219,9 +219,12 @@ else:
                 📉 MA20: {row["MA20"]}
             </div>
 
-            <div style=font-size:20px;"margin-top:14px;">
-                {row["均線狀態"]}        {row["訊號"]}
+
+            <div style="font-size:20px; margin-top:14px; display:flex; justify-content:space-between;">
+                <div>{row["均線狀態"]}</div>
+                <div>{row["訊號"]}</div>
             </div>
+
 
             <div style=font-size:20px;"margin-top:8px;">
                 {row["訊號"]}

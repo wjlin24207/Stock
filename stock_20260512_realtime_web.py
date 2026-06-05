@@ -220,7 +220,7 @@ else:
             </div>
 
             <div style=font-size:20px;"margin-top:14px;">
-                {row["均線狀態"],row["訊號"]}
+                {row["均線狀態"]}
             </div>
 
             <div style=font-size:20px;"margin-top:8px;">

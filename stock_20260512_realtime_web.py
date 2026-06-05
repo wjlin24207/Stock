@@ -220,10 +220,11 @@ else:
             </div>
 
 
-            <div style="font-size:20px; margin-top:14px; display:flex; justify-content:space-between;">
-                <div>{row["均線狀態"]}</div>
-                <div>{row["訊號"]}</div>
+
+            <div style="font-size:20px; margin-top:14px;">
+                {row["均線狀態"]}&nbsp;&nbsp;&nbsp;&nbsp;{row["訊號"]}
             </div>
+
 
 
             <div style=font-size:20px;"margin-top:8px;">

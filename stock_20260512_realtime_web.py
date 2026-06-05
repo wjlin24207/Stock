@@ -230,7 +230,7 @@ else:
         </div>
         """
 
-        components.html(html, height=310)
+        components.html(html, height=350)
 
 
 

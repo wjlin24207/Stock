@@ -149,7 +149,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
 
 # ===== 主程式 =====
-target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "2330", "00631L"]
+target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
 taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))

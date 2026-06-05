@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（手機卡片版）")
+st.title("📊 策略監控儀表板（專業版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -99,6 +99,9 @@ def process_kd_logic(stock_id, live_info, hist_df):
         ma10_t = ma10.iloc[-1]
         ma20_t = ma20.iloc[-1]
 
+        ma5_y = ma5.iloc[-2]
+        ma10_y = ma10.iloc[-2]
+
         diff = live_price - y_price
         percent = (diff / y_price * 100) if y_price > 0 else 0
 
@@ -109,6 +112,11 @@ def process_kd_logic(stock_id, live_info, hist_df):
             signal.append("⚠️ KD超賣")
         elif k > 80:
             signal.append("🔥 KD超買")
+
+        if ma5_y <= ma10_y and ma5_t > ma10_t:
+            signal.append("✨ 均線黃金交叉")
+        elif ma5_y >= ma10_y and ma5_t < ma10_t:
+            signal.append("❌ 均線死亡交叉")
 
         if live_price > ma5_t > ma10_t > ma20_t:
             ma_status = "🚀 均線多頭"
@@ -141,7 +149,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
 
 # ===== 主程式 =====
-target_stocks = ["^TWII","0056","00878","00919","0050","00981A","00988A","00631L","2330","3711"]
+target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
 taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -172,67 +180,104 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-# ✅ 卡片顯示
-import streamlit.components.v1 as components
-# ✅ 卡片顯示
+
+df = df.rename(columns={
+    "代號": "代號/K線",
+    "名稱": "名稱/成份股"
+})
+
+
+# ✅ 保留原始代號（關鍵）
+df["代號_raw"] = df["代號/K線"]
+
+# ===== ✅ 代號 → K線 =====
+def make_id_link(row):
+
+    sid = row["代號_raw"]
+
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+
+    return f'<a href="{url}" target="_blank">{sid}</a>'
+
+
+# ===== ✅ 名稱 → ETF成分股 =====
+
+def make_name_link(row):
+    sid = row["代號_raw"]
+    name = row["名稱/成份股"]
+
+    # ✅ 先設預設值
+    url = None
+
+    if str(sid).startswith("00"):
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
+
+    # ✅ 有 URL 才做連結
+    if url:
+        return f'<a href="{url}" target="_blank">{name}</a>'
+
+    return name
+
+
+
+df["名稱/成份股"] = df.apply(make_name_link, axis=1)
+df["代號/K線"] = df.apply(make_id_link, axis=1)
+
+
+# 刪掉暫存欄位
+df = df.drop(columns=["代號_raw"])
+
+
 if df.empty:
     st.error("❌ 抓不到資料")
 else:
-    for _, row in df.iterrows():
+    styled = df.style.format({
+        "價格": "{:,.2f}",
+        "漲跌": "{:+,.2f}",
+        "漲幅%": "{:+,.2f}%",
+        "K": "{:.2f}",
+        "D": "{:.2f}",
+        "MA5": "{:.2f}",
+        "MA10": "{:.2f}",
+        "MA20": "{:.2f}"
+    })
 
-        color = "red" if row["漲跌"] > 0 else "green"
+    def color(val):
+        return "color:red" if val > 0 else "color:green" if val < 0 else ""
 
-        sid = row["代號"]
-        if sid == "^TWII":
-            k_url = "https://tw.stock.yahoo.com/tw-market"
-        else:
-            k_url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+    styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-        html = f"""
-        <div style="
-            background:#111;
-            padding:14px;
-            margin:10px 0;
-            border-radius:12px;
-            box-shadow:0 0 8px rgba(0,0,0,0.6);
-            color:white;
-            font-family:sans-serif;
-        ">
+    def apply_price(row):
+        diff = df.loc[row.name, "漲跌"]
+        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
 
-            <div style="font-size:24px;font-weight:bold;">
-                <a href="{k_url}" target="_blank" style="color:#4da6ff;text-decoration:none;">
-                    {row["代號"]} {row["名稱"]}
-                </a>
-            </div>
+    styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-            <div style="color:{color};font-size:24px;margin-top:5px;">
-                {row["價格"]} ({row["漲跌"]:+} / {row["漲幅%"]}%)
-            </div>
+    def color_ma(val, price):
+        return "color:red" if val < price else "color:green" if val > price else ""
 
-            <div style=font-size:20px;"margin-top:12px;">
-                📊 K: {row["K"]} ｜ D: {row["D"]}
-            </div>
+    def apply_ma(row):
+        price = df.loc[row.name, "價格"]
+        return [
+            color_ma(row["MA5"], price),
+            color_ma(row["MA10"], price),
+            color_ma(row["MA20"], price)
+        ]
 
-            <div style=font-size:20px;"margin-top:18px; line-height:1.6;">
-                📉 MA5: {row["MA5"]}<br>
-                📉 MA10: {row["MA10"]}<br>
-                📉 MA20: {row["MA20"]}
-            </div>
+    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
+    st.markdown("""
+<style>
+table { width: 100% !important; table-layout: auto; }
+td, th { white-space: nowrap; font-size: 14px; }
+div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
+</style>
+""", unsafe_allow_html=True)
 
-
-            <div style="font-size:20px; margin-top:14px;">
-                {row["均線狀態"]}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{row["訊號"]}
-            </div>
-
-
-
-
-        </div>
-        """
-
-        components.html(html, height=290)
-
+    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 
 
 time.sleep(30)

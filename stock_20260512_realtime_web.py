@@ -199,31 +199,31 @@ else:
             font-family:sans-serif;
         ">
 
-            <div style="font-size:18px;font-weight:bold;">
+            <div style="font-size:24px;font-weight:bold;">
                 <a href="{k_url}" target="_blank" style="color:#4da6ff;text-decoration:none;">
                     {row["代號"]} {row["名稱"]}
                 </a>
             </div>
 
-            <div style="color:{color};font-size:22px;margin-top:5px;">
+            <div style="color:{color};font-size:24px;margin-top:5px;">
                 {row["價格"]} ({row["漲跌"]:+} / {row["漲幅%"]}%)
             </div>
 
-            <div style="margin-top:8px;">
+            <div style="margin-top:10px;">
                 📊 K: {row["K"]} ｜ D: {row["D"]}
             </div>
 
-            <div style="margin-top:6px; line-height:1.6;">
+            <div style="margin-top:10px; line-height:1.6;">
                 📉 MA5: {row["MA5"]}<br>
                 📉 MA10: {row["MA10"]}<br>
                 📉 MA20: {row["MA20"]}
             </div>
 
-            <div style="margin-top:6px;">
+            <div style="margin-top:10px;">
                 {row["均線狀態"]}
             </div>
 
-            <div style="margin-top:6px;">
+            <div style="margin-top:10px;">
                 {row["訊號"]}
             </div>
 

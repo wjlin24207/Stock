@@ -226,7 +226,7 @@ else:
         </div>
         """
 
-        components.html(html, height=220)
+        components.html(html, height=250)
 
 
 time.sleep(30)

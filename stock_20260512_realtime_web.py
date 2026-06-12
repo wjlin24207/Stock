@@ -43,7 +43,7 @@ def get_all_live_prices(stock_list):
         return {}
 
 
-# ===== Yahoo資料 =====
+# ===== Yahoo =====
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
     return yf.download(
@@ -83,9 +83,9 @@ def process_kd_logic(stock_id, live_info, hist_df):
             k = k*2/3 + rsv/3
             d = d*2/3 + k/3
 
-        ma5 = temp['close'].rolling(5).mean().iloc[-1]
-        ma10 = temp['close'].rolling(10).mean().iloc[-1]
-        ma20 = temp['close'].rolling(20).mean().iloc[-1]
+        ma5 = temp['close'].rolling(5).mean()
+        ma10 = temp['close'].rolling(10).mean()
+        ma20 = temp['close'].rolling(20).mean()
 
         return {
             "代號": stock_id,
@@ -95,23 +95,22 @@ def process_kd_logic(stock_id, live_info, hist_df):
             "漲幅%": round((live_price - y_price)/y_price*100, 2) if y_price else 0,
             "K": round(k, 2),
             "D": round(d, 2),
-            "MA5": round(ma5, 2),
-            "MA10": round(ma10, 2),
-            "MA20": round(ma20, 2)
+            "MA5": round(ma5.iloc[-1], 2),
+            "MA10": round(ma10.iloc[-1], 2),
+            "MA20": round(ma20.iloc[-1], 2)
         }
     except:
         return None
 
 
-# ==================== 股票清單 ====================
+# ===== 股票清單 =====
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 inventory_stocks = ["^TWII", "2454", "2317"]
 
-# ✅ 正確保留順序（不使用 set）
+# ✅ 保持順序
 all_stocks = target_stocks + [s for s in inventory_stocks if s not in target_stocks]
 
-
-# ===== UI =====
+# ===== 時間 =====
 col1, col2 = st.columns([8,2])
 with col1:
     tw_time = datetime.utcnow() + timedelta(hours=8)
@@ -119,7 +118,6 @@ with col1:
 with col2:
     if st.button("🔄 手動刷新"):
         st.rerun()
-
 
 # ===== 抓資料 =====
 prices = get_all_live_prices(all_stocks)
@@ -148,35 +146,56 @@ if df.empty:
     st.error("❌ 抓不到資料")
     st.stop()
 
-# ✅ 加 raw
+# ✅ 保留raw
 df["代號_raw"] = df["代號"]
+
+# ✅ 建立連結
+def make_id_link(sid):
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+    return f'<a href="{url}" target="_blank">{sid}</a>'
+
+def make_name_link(sid, name):
+    if str(sid).startswith("00"):
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
+        return f'<a href="{url}" target="_blank">{name}</a>'
+    return name
 
 
 # ==================== 畫面 ====================
 top_col1, top_col2 = st.columns([6,4])
 
-# 左：自選股
+# ✅ 自選股
 with top_col1:
     st.subheader("📌 自選股監控")
     df_watch = df[df["代號_raw"].isin(target_stocks)].copy()
-    df_watch = df_watch.drop(columns=["代號_raw"])
-    st.dataframe(df_watch, use_container_width=True)
 
-# 右：YouTube
+    df_watch["代號/K線"] = df_watch["代號_raw"].apply(make_id_link)
+    df_watch["名稱/成份股"] = df_watch.apply(lambda r: make_name_link(r["代號_raw"], r["名稱"]), axis=1)
+
+    df_watch = df_watch.drop(columns=["代號_raw","代號","名稱"])
+
+    st.markdown(df_watch.to_html(escape=False), unsafe_allow_html=True)
+
+# ✅ YouTube
 with top_col2:
-    st.subheader("📺 財經新聞直播")
-    video_id = st.text_input("輸入YouTube ID", value="1I2iq41Akmo")
+    st.subheader("📺 財經新聞直播設定")
+    video_id = st.text_input("請輸入 YouTube ID", value="1I2iq41Akmo")
     st.video(f"https://www.youtube.com/watch?v={video_id}")
 
-# 下：庫存
+# ✅ 庫存
 st.divider()
 st.subheader("💼 庫存明細")
 
 df_inventory = df[df["代號_raw"].isin(inventory_stocks)].copy()
-df_inventory = df_inventory.drop(columns=["代號_raw"])
+df_inventory["代號/K線"] = df_inventory["代號_raw"].apply(make_id_link)
+df_inventory["名稱/成份股"] = df_inventory.apply(lambda r: make_name_link(r["代號_raw"], r["名稱"]), axis=1)
 
-st.dataframe(df_inventory, use_container_width=True)
+df_inventory = df_inventory.drop(columns=["代號_raw","代號","名稱"])
 
+st.markdown(df_inventory.to_html(escape=False), unsafe_allow_html=True)
 
 # ===== 自動刷新 =====
 time.sleep(30)

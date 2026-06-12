@@ -284,7 +284,8 @@ else:
     with top_col1:
        st.subheader("📌 自選股監控")
        # 1. 排除大盤，複製一份自選股資料
-       df_watchlist = df[df["代號/K線"].str.contains("TWII") == False].copy()
+       df_watchlist = df[df["代號_raw"].isin(target_stocks)].copy()
+       #df_watchlist = df[df["代號/K線"].str.contains("TWII") == False].copy()
        # 2. 移除自選股不需要的欄位
        drop_cols = ["MA5", "MA10", "MA20", "均線狀態", "訊號"]
        existing_drop_cols = [c for c in drop_cols if c in df_watchlist.columns]

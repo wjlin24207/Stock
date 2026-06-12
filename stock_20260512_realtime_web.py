@@ -1,36 +1,61 @@
+import requests
 import yfinance as yf
 import pandas as pd
+import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
 
-# ==================== 1. 頁面基本設定 ====================
-st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（Yahoo 穩定版）")
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ===== Yahoo資料 =====
+st.set_page_config(page_title="KD監控儀表板", layout="wide")
+st.title("📊 策略監控儀表板（專業版）")
+
+session = requests.Session()
+session.headers.update({'User-Agent': 'Mozilla/5.0'})
+
+
+# ===== 取得即時價格 =====
+def get_all_live_prices(stock_list):
+    ex_ch_list = []
+    for sid in stock_list:
+        if sid == "^TWII":
+            ex_ch_list.append("tse_t00.tw")
+        else:
+            ex_ch_list.append(f"tse_{sid}.tw")
+            ex_ch_list.append(f"otc_{sid}.tw")
+
+    url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={'|'.join(ex_ch_list)}&json=1&delay=0"
+
+    try:
+        res = session.get(url, timeout=10, verify=False)
+        data = res.json()
+        price_map = {}
+
+        if 'msgArray' in data:
+            for info in data['msgArray']:
+                key = info.get('c')
+                if key == 't00':
+                    key = '^TWII'
+                price_map[key] = info
+        return price_map
+    except:
+        return {}
+
+
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-
-    for i in range(3):
-        try:
-            df = yf.download(
-                tickers,
-                period="6mo",
-                interval="1d",
-                progress=False,
-                group_by='ticker',
-                auto_adjust=True
-            )
-            return df
-        except Exception as e:
-            print(f"Yahoo retry {i+1}: {e}")
-            time.sleep(2)
-
-    return pd.DataFrame()
+    return yf.download(
+        tickers,
+        period="6mo",
+        interval="1d",
+        progress=False,
+        group_by='ticker',
+        auto_adjust=True
+    )
 
 
-def process_kd_logic(stock_id, hist_df):
+def process_kd_logic(stock_id, live_info, hist_df):
     try:
         if hist_df is None or hist_df.empty:
             return None
@@ -38,11 +63,22 @@ def process_kd_logic(stock_id, hist_df):
         hist = hist_df.dropna().copy()
         hist.columns = [c.lower() for c in hist.columns]
 
-        # ✅ 直接用最新收盤當「即時價」
-        live_price = float(hist['close'].iloc[-1])
-        y_price = float(hist['close'].iloc[-2])
+        z = live_info.get('z', '-')
+        b = live_info.get('b', '-')
+        b = b.split('_')[0] if b else '-'
+        y = live_info.get('y', '0')
+
+        if z not in ['-', '']:
+            live_price = float(z)
+        elif b not in ['-', '']:
+            live_price = float(b)
+        else:
+            live_price = float(y)
+
+        y_price = float(y)
 
         temp = hist.astype(float).copy()
+        temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
         temp['9h'] = temp['high'].rolling(9).max()
         temp['9l'] = temp['low'].rolling(9).min()
@@ -89,7 +125,9 @@ def process_kd_logic(stock_id, hist_df):
         else:
             ma_status = "➖ 均線盤整"
 
-        name = stock_id if stock_id != "^TWII" else "加權指數"
+        name = live_info.get('n', stock_id)
+        if stock_id == "^TWII":
+            name = "加權指數"
 
         return {
             "代號": stock_id,
@@ -106,29 +144,26 @@ def process_kd_logic(stock_id, hist_df):
             "訊號": " | ".join(signal)
         }
 
-    except Exception as e:
-        print(f"process error {stock_id}: {e}")
+    except:
         return None
 
 
-# ===== 股票清單 =====
+# ===== 主程式 =====
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
-# ===== 顯示時間 =====
-col1, col2 = st.columns([8, 2])
-with col1:
-    taiwan_time = datetime.utcnow() + timedelta(hours=8)
-    st.write("⏱️ 更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
+taiwan_time = datetime.utcnow() + timedelta(hours=8)
+st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
 
-with col2:
-    if st.button("🔄 手動刷新"):
-        st.rerun()
+if st.button("🔄 手動刷新"):
+    st.rerun()
 
-# ===== 抓資料 =====
+prices = get_all_live_prices(target_stocks)
 hists = get_all_yahoo_hist(target_stocks)
 
 rows = []
+
 for sid in target_stocks:
+    live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
 
     hist = None
@@ -138,24 +173,112 @@ for sid in target_stocks:
     else:
         hist = hists
 
-    result = process_kd_logic(sid, hist)
-    if result:
-        rows.append(result)
+    if live and hist is not None:
+        result = process_kd_logic(sid, live, hist)
+        if result:
+            rows.append(result)
 
 df = pd.DataFrame(rows)
 
-if df.empty:
-    st.error("❌ Yahoo 沒抓到資料")
-    st.stop()
 
 df = df.rename(columns={
     "代號": "代號/K線",
     "名稱": "名稱/成份股"
 })
 
-# ===== 表格顯示 =====
-st.dataframe(df, use_container_width=True)
 
-# ===== 自動刷新 =====
+# ✅ 保留原始代號（關鍵）
+df["代號_raw"] = df["代號/K線"]
+
+# ===== ✅ 代號 → K線 =====
+def make_id_link(row):
+
+    sid = row["代號_raw"]
+
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+
+    return f'<a href="{url}" target="_blank">{sid}</a>'
+
+
+# ===== ✅ 名稱 → ETF成分股 =====
+
+def make_name_link(row):
+    sid = row["代號_raw"]
+    name = row["名稱/成份股"]
+
+    # ✅ 先設預設值
+    url = None
+
+    if str(sid).startswith("00"):
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
+
+    # ✅ 有 URL 才做連結
+    if url:
+        return f'<a href="{url}" target="_blank">{name}</a>'
+
+    return name
+
+
+
+df["名稱/成份股"] = df.apply(make_name_link, axis=1)
+df["代號/K線"] = df.apply(make_id_link, axis=1)
+
+
+# 刪掉暫存欄位
+df = df.drop(columns=["代號_raw"])
+
+
+if df.empty:
+    st.error("❌ 抓不到資料")
+else:
+    styled = df.style.format({
+        "價格": "{:,.2f}",
+        "漲跌": "{:+,.2f}",
+        "漲幅%": "{:+,.2f}%",
+        "K": "{:.2f}",
+        "D": "{:.2f}",
+        "MA5": "{:.2f}",
+        "MA10": "{:.2f}",
+        "MA20": "{:.2f}"
+    })
+
+    def color(val):
+        return "color:red" if val > 0 else "color:green" if val < 0 else ""
+
+    styled = styled.map(color, subset=["漲跌", "漲幅%"])
+
+    def apply_price(row):
+        diff = df.loc[row.name, "漲跌"]
+        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
+
+    styled = styled.apply(apply_price, subset=["價格"], axis=1)
+
+    def color_ma(val, price):
+        return "color:red" if val < price else "color:green" if val > price else ""
+
+    def apply_ma(row):
+        price = df.loc[row.name, "價格"]
+        return [
+            color_ma(row["MA5"], price),
+            color_ma(row["MA10"], price),
+            color_ma(row["MA20"], price)
+        ]
+
+    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
+
+    st.markdown("""
+<style>
+table { width: 100% !important; table-layout: auto; }
+td, th { white-space: nowrap; font-size: 14px; }
+div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
+</style>
+""", unsafe_allow_html=True)
+
+    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
+
+
 time.sleep(30)
 st.rerun()

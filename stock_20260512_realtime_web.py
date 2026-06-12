@@ -201,7 +201,7 @@ def make_id_link(row):
     return f'<a href="{url}" target="_blank">{sid}</a>'
 
 def make_name_link(row):
-    sid = row["代跑_raw"] if "代跑_raw" in row else row["代號_raw"]
+    sid = row["代號_raw"] if "代號_raw" in row else row["代號_raw"]
     name = row["名稱/成份股"]
     url = None
     if str(sid).startswith("00"):

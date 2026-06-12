@@ -152,7 +152,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 # ===== 2. 資料準備與計算 =====
 # 這裡包含所有要追蹤的股票
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
-inventory_stocks = ["^TWII", "2454"]
+inventory_stocks = ["^TWII", "2454", "2317"]
 # 頂部控制列（更新時間與手動刷新按鈕並排）
 time_col1, time_col2 = st.columns([8, 2])
 with time_col1:

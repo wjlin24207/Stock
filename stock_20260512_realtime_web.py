@@ -308,8 +308,8 @@ else:
     with col_bottom:
         st.subheader("💼 庫存明細 (範例)")
         # 這裡可以放你的庫存 DataFrame。目前先拿大盤「加權指數」當作下方的庫存示範範例
-        df_inventory = df[df["代號/K線"].str.contains("TWII|00991A") == True]
-        
+        df_inventory = df[df["代號/K線"].str.contains("TWII") == True]
+        df_inventory = df[df["代號/K線"].str.contains("00991A") == True]
         if not df_inventory.empty:
             # 這裡簡單呈現大盤在下方，你也可以直接換成 st.dataframe(你的真實庫存)
             st.info("💡 這裡可以放置您獨立的庫存資產表格，目前下方暫時獨立顯示大盤。")

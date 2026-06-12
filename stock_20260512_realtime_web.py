@@ -185,7 +185,7 @@ for sid in target_stocks:
 df = pd.DataFrame(rows)
 
 # 建立超連結處理
-df["代號_raw"] = df["代號/K線"]
+df["代號_raw"] = df["代號"]
 
 def make_id_link(row):
     sid = row["代號_raw"]

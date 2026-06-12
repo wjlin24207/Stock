@@ -8,7 +8,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
 st.title("📊 策略監控儀表板（專業版）")
@@ -186,7 +185,7 @@ for sid in target_stocks:
 df = pd.DataFrame(rows)
 
 # 建立超連結處理
-df["代號_raw"] = df["代號"]
+df["代號_raw"] = df["代號/K線"]
 
 def make_id_link(row):
     sid = row["代號_raw"]
@@ -198,7 +197,7 @@ def make_id_link(row):
 
 def make_name_link(row):
     sid = row["代跑_raw"] if "代跑_raw" in row else row["代號_raw"]
-    name = row["名稱"]
+    name = row["名稱/成份股"]
     url = None
     if str(sid).startswith("00"):
         url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
@@ -206,8 +205,8 @@ def make_name_link(row):
         return f'<a href="{url}" target="_blank">{name}</a>'
     return name
 
-df["名稱"] = df.apply(make_name_link, axis=1)
-df["代號"] = df.apply(make_id_link, axis=1)
+df["名稱/成份股"] = df.apply(make_name_link, axis=1)
+df["代號/K線"] = df.apply(make_id_link, axis=1)
 df = df.drop(columns=["代號_raw"])
 
 df = df.rename(columns={

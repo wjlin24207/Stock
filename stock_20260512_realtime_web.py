@@ -216,4 +216,4 @@ st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
 # 自動刷新
 time.sleep(30)
 st.rerun()
-``
+

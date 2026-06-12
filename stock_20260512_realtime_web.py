@@ -78,23 +78,23 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         y_price = float(y)
 
-        temp = hist.astype(float).copy()
-        temp.iloc[-1, temp.columns.get_loc('close')] = live_price
+        庫存 = hist.astype(float).copy()
+        庫存.iloc[-1, 庫存.columns.get_loc('close')] = live_price
 
-        temp['9h'] = temp['high'].rolling(9).max()
-        temp['9l'] = temp['low'].rolling(9).min()
+        庫存['9h'] = 庫存['high'].rolling(9).max()
+        庫存['9l'] = 庫存['low'].rolling(9).min()
 
-        temp['rsv'] = 100 * (temp['close'] - temp['9l']) / (temp['9h'] - temp['9l'] + 1e-9)
-        temp['rsv'] = temp['rsv'].fillna(50)
+        庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫存['9l'] + 1e-9)
+        庫存['rsv'] = 庫存['rsv'].fillna(50)
 
         k, d = 50, 50
-        for rsv in temp['rsv']:
+        for rsv in 庫存['rsv']:
             k = k * (2/3) + rsv * (1/3)
             d = d * (2/3) + k * (1/3)
 
-        ma5 = temp['close'].rolling(5).mean()
-        ma10 = temp['close'].rolling(10).mean()
-        ma20 = temp['close'].rolling(20).mean()
+        ma5 = 庫存['close'].rolling(5).mean()
+        ma10 = 庫存['close'].rolling(10).mean()
+        ma20 = 庫存['close'].rolling(20).mean()
 
         ma5_t = ma5.iloc[-1]
         ma10_t = ma10.iloc[-1]
@@ -269,15 +269,15 @@ else:
     html_table = styled.to_html(escape=False)
 
     # ------------------ 畫面上半部：左右分欄 ------------------
-    # 分配權重：自選股 65%, YouTube 直播 35%
+    # 分配權重：庫存股 65%, YouTube 直播 35%
     top_col1, top_col2 = st.columns([6, 4])
 
-# === 左側：自選股監控 (簡化版) ===
+# === 左側：庫存股監控 (簡化版) ===
     with top_col1:
-       st.subheader("📌 自選股監控")
-       # 1. 排除大盤，複製一份自選股資料
+       st.subheader("📌 庫存股監控")
+       # 1. 排除大盤，複製一份庫存股資料
        df_watchlist = df[df["代號/K線"].str.contains("TWII") == False].copy()
-       # 2. 移除自選股不需要的欄位
+       # 2. 移除庫存股不需要的欄位
        drop_cols = ["MA5", "MA10", "MA20", "均線狀態", "訊號"]
        existing_drop_cols = [c for c in drop_cols if c in df_watchlist.columns]
        df_watchlist = df_watchlist.drop(columns=existing_drop_cols)
@@ -286,7 +286,7 @@ else:
            "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}"
        }).map(color, subset=["漲跌", "漲幅%"])
        watch_styled = watch_styled.apply(apply_price, subset=["價格"], axis=1)
-       # 4. 渲染自選股
+       # 4. 渲染庫存股
        st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
    # === 右側：東森財經新聞直播 (含 ID 輸入欄位) ===
     with top_col2:
@@ -306,15 +306,15 @@ else:
     col_bottom = st.container()
     
     with col_bottom:
-        st.subheader("💼 庫存明細 (範例)")
-        # 這裡可以放你的庫存 DataFrame。目前先拿大盤「加權指數」當作下方的庫存示範範例
+        st.subheader("💼 自選明細 (範例)")
+        # 這裡可以放你的自選 DataFrame。目前先拿大盤「加權指數」當作下方的自選示範範例
         df_inventory = df[df["代號/K線"].str.contains("TWII|00981A|00988A") == True]
         
         if not df_inventory.empty:
-            # 這裡簡單呈現大盤在下方，你也可以直接換成 st.dataframe(你的真實庫存)
-            st.info("💡 這裡可以放置您獨立的庫存資產表格，目前下方暫時獨立顯示大盤。")
+            # 這裡簡單呈現大盤在下方，你也可以直接換成 st.dataframe(你的真實自選)
+            st.info("💡 這裡可以放置您獨立的自選資產表格，目前下方暫時獨立顯示大盤。")
             
-            # 重新為庫存建立獨立樣式或直接渲染
+            # 重新為自選建立獨立樣式或直接渲染
             inv_styled = df_inventory.style.format({
                 "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%",
                 "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"

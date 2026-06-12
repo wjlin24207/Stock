@@ -166,12 +166,14 @@ for sid in target_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
 
+
     hist = None
     if isinstance(hists.columns, pd.MultiIndex):
         if key in hists.columns.levels[0]:
             hist = hists[key]
     else:
         hist = hists
+
 
     if live and hist is not None:
         result = process_kd_logic(sid, live, hist)

@@ -159,4 +159,3 @@ st.dataframe(df, use_container_width=True)
 # ===== 自動刷新 =====
 time.sleep(30)
 st.rerun()
-``

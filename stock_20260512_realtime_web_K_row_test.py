@@ -5,11 +5,13 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
+import streamlit.components.v1 as components
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（手機卡片版）")
+st.title("📊 策略監控儀表板（專業版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -99,6 +101,9 @@ def process_kd_logic(stock_id, live_info, hist_df):
         ma10_t = ma10.iloc[-1]
         ma20_t = ma20.iloc[-1]
 
+        ma5_y = ma5.iloc[-2]
+        ma10_y = ma10.iloc[-2]
+
         diff = live_price - y_price
         percent = (diff / y_price * 100) if y_price > 0 else 0
 
@@ -109,6 +114,11 @@ def process_kd_logic(stock_id, live_info, hist_df):
             signal.append("⚠️ KD超賣")
         elif k > 80:
             signal.append("🔥 KD超買")
+
+        if ma5_y <= ma10_y and ma5_t > ma10_t:
+            signal.append("✨ 均線黃金交叉")
+        elif ma5_y >= ma10_y and ma5_t < ma10_t:
+            signal.append("❌ 均線死亡交叉")
 
         if live_price > ma5_t > ma10_t > ma20_t:
             ma_status = "🚀 均線多頭"
@@ -140,20 +150,23 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return None
 
 
-# ===== 主程式 =====
-target_stocks = ["^TWII","0056","00878","00919","0050","00981A","00988A","00631L","2330","3711"]
+# ===== 2. 資料準備與計算 =====
+# 這裡包含所有要追蹤的股票
+target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
-taiwan_time = datetime.utcnow() + timedelta(hours=8)
-st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
-
-if st.button("🔄 手動刷新"):
-    st.rerun()
+# 頂部控制列（更新時間與手動刷新按鈕並排）
+time_col1, time_col2 = st.columns([8, 2])
+with time_col1:
+    taiwan_time = datetime.utcnow() + timedelta(hours=8)
+    st.write("⏱️ 更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
+with time_col2:
+    if st.button("🔄 手動刷新", use_container_width=True):
+        st.rerun()
 
 prices = get_all_live_prices(target_stocks)
 hists = get_all_yahoo_hist(target_stocks)
 
 rows = []
-
 for sid in target_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
@@ -172,62 +185,134 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-# ✅ 卡片顯示
-import streamlit.components.v1 as components
-# ✅ 卡片顯示
+# 建立超連結處理
+df["代號_raw"] = df["代號"]
+
+def make_id_link(row):
+    sid = row["代號_raw"]
+    if sid == "^TWII":
+        url = "https://tw.stock.yahoo.com/tw-market"
+    else:
+        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+    return f'<a href="{url}" target="_blank">{sid}</a>'
+
+def make_name_link(row):
+    sid = row["代跑_raw"] if "代跑_raw" in row else row["代號_raw"]
+    name = row["名稱"]
+    url = None
+    if str(sid).startswith("00"):
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
+    if url:
+        return f'<a href="{url}" target="_blank">{name}</a>'
+    return name
+
+df["名稱"] = df.apply(make_name_link, axis=1)
+df["代號"] = df.apply(make_id_link, axis=1)
+df = df.drop(columns=["代號_raw"])
+
+df = df.rename(columns={
+    "代號": "代號/K線",
+    "名稱": "名稱/成份股"
+})
+
+
+# ==================== 3. 畫面排版渲染 (核心修改區) ====================
+
+# 定義全域表格 CSS 樣式
+st.markdown("""
+<style>
+table { width: 100% !important; table-layout: auto; }
+td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; }
+div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
+</style>
+""", unsafe_allow_html=True)
+
 if df.empty:
     st.error("❌ 抓不到資料")
 else:
-    for _, row in df.iterrows():
+    # 統一樣式美化設定
+    styled = df.style.format({
+        "價格": "{:,.2f}",
+        "漲跌": "{:+,.2f}",
+        "漲幅%": "{:+,.2f}%",
+        "K": "{:.2f}",
+        "D": "{:.2f}",
+        "MA5": "{:.2f}",
+        "MA10": "{:.2f}",
+        "MA20": "{:.2f}"
+    })
 
-        color = "red" if row["漲跌"] > 0 else "green"
+    def color(val):
+        return "color:red" if val > 0 else "color:green" if val < 0 else ""
+    styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-        sid = row["代號"]
-        if sid == "^TWII":
-            k_url = "https://tw.stock.yahoo.com/tw-market"
-        else:
-            k_url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+    def apply_price(row):
+        diff = df.loc[row.name, "漲跌"]
+        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
+    styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-        html = f"""
-        <div style="
-            background:#111;
-            padding:14px;
-            margin:10px 0;
-            border-radius:12px;
-            box-shadow:0 0 8px rgba(0,0,0,0.6);
-            color:white;
-            font-family:sans-serif;
-        ">
-            <div style="font-size:18px;font-weight:bold;">
-                <a href="{k_url}" target="_blank" style="color:#4da6ff;text-decoration:none;">
-                    {row["代號"]} {row["名稱"]}
-                </a>
-            </div>
+    def color_ma(val, price):
+        return "color:red" if val < price else "color:green" if val > price else ""
 
-            <div style="color:{color};font-size:22px;margin-top:5px;">
-                {row["價格"]} ({row["漲跌"]:+} / {row["漲幅%"]}%)
-            </div>
+    def apply_ma(row):
+        price = df.loc[row.name, "價格"]
+        return [
+            color_ma(row["MA5"], price),
+            color_ma(row["MA10"], price),
+            color_ma(row["MA20"], price)
+        ]
+    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
+    
+    # 將 Styler 轉換為 HTML 字串
+    html_table = styled.to_html(escape=False)
 
-            <div style="margin-top:8px;">
-                📊 K: {row["K"]} ｜ D: {row["D"]}
-            </div>
+    # ------------------ 畫面上半部：左右分欄 ------------------
+    # 分配權重：自選股 65%, YouTube 直播 35%
+    top_col1, top_col2 = st.columns([6.5, 3.5])
 
-            <div>
-                📉 MA5: {row["MA5"]} ｜ MA10: {row["MA10"]} ｜ MA20: {row["MA20"]}
-            </div>
+    with top_col1:
+        st.subheader("📌 自選股監控")
+        # 這裡過濾掉大盤，只顯示一般個股與 ETF (你可以自行定義哪些要放在自選股)
+        # 這裡示範排除大盤，其餘放在自選股
+        df_watchlist = df[df["代號/K線"].str.contains("TWII") == False]
+        
+        # 由於需要維持原本的帶顏色 HTML 渲染，我們將過濾後的資料庫重新讀取對應的 HTML 
+        # 這裡為了簡單，我們直接在 `top_col1` 顯示原表格 (或過濾後的 html)
+        st.markdown(html_table, unsafe_allow_html=True)
 
-            <div style="margin-top:5px;">
-                {row["均線狀態"]}
-            </div>
+    with top_col2:
+        st.subheader("📺 東森財經新聞直播")
+        # 東森財經新聞 YouTube 直播嵌入網址 (設定自動播放及靜音)
+        video_id = "WMskT7COI8U" 
+        embed_url = f"https://www.youtube.com/embed/{video_id}?autoplay=1&mute=1"
+        
+        components.iframe(
+            src=embed_url,
+            height=360,  # 高度可配合左邊表格長度微調
+            scrolling=False
+        )
 
-            <div style="margin-top:5px;">
-                {row["訊號"]}
-            </div>
-        </div>
-        """
+    # ------------------ 畫面下半部：全寬獨占 ------------------
+    st.divider()
+    col_bottom = st.container()
+    
+    with col_bottom:
+        st.subheader("💼 庫存明細 (範例)")
+        # 這裡可以放你的庫存 DataFrame。目前先拿大盤「加權指數」當作下方的庫存示範範例
+        df_inventory = df[df["代號/K線"].str.contains("TWII") == True]
+        
+        if not df_inventory.empty:
+            # 這裡簡單呈現大盤在下方，你也可以直接換成 st.dataframe(你的真實庫存)
+            st.info("💡 這裡可以放置您獨立的庫存資產表格，目前下方暫時獨立顯示大盤。")
+            
+            # 重新為庫存建立獨立樣式或直接渲染
+            inv_styled = df_inventory.style.format({
+                "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%",
+                "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"
+            }).map(color, subset=["漲跌", "漲幅%"])
+            
+            st.markdown(inv_styled.to_html(escape=False), unsafe_allow_html=True)
 
-        components.html(html, height=220)
-
-
+# ===== 4. 自動循環刷新 =====
 time.sleep(30)
 st.rerun()

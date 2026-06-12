@@ -187,6 +187,11 @@ df = pd.DataFrame(rows)
 # 建立超連結處理
 df["代號_raw"] = df["代號"]
 
+
+df = df.rename(columns={
+    "代號": "代號/K線",
+    "名稱": "名稱/成份股"
+}
 def make_id_link(row):
     sid = row["代號_raw"]
     if sid == "^TWII":
@@ -209,9 +214,9 @@ df["名稱/成份股"] = df.apply(make_name_link, axis=1)
 df["代號/K線"] = df.apply(make_id_link, axis=1)
 df = df.drop(columns=["代號_raw"])
 
-df = df.rename(columns={
-    "代號": "代號/K線",
-    "名稱": "名稱/成份股"
+#df = df.rename(columns={
+#    "代號": "代號/K線",
+#    "名稱": "名稱/成份股"
 })
 
 

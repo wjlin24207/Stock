@@ -1,65 +1,20 @@
-import requests
 import yfinance as yf
 import pandas as pd
-import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
-import streamlit.components.v1 as components
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（專業版）")
+st.title("📊 策略監控儀表板（Yahoo 穩定版）")
 
-session = requests.Session()
-session.headers.update({'User-Agent': 'Mozilla/5.0'})
-
-
-# ✅ ===== 取得即時價格（強化版）=====
-def get_all_live_prices(stock_list):
-    ex_ch_list = []
-    for sid in stock_list:
-        if sid == "^TWII":
-            ex_ch_list.append("tse_t00.tw")
-        else:
-            ex_ch_list.append(f"tse_{sid}.tw")
-            ex_ch_list.append(f"otc_{sid}.tw")
-
-    url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={'|'.join(ex_ch_list)}&json=1&delay=0"
-
-    try:
-        res = session.get(url, timeout=10, verify=False)
-        data = res.json()
-
-        price_map = {}
-
-        if 'msgArray' in data and len(data['msgArray']) > 0:
-            for info in data['msgArray']:
-                key = info.get('c')
-                if key == 't00':
-                    key = '^TWII'
-                price_map[key] = info
-
-            return price_map
-
-        # ✅ fallback：抓不到資料（TWSE擋IP）
-        st.warning("⚠️ 即時報價抓不到（可能被TWSE擋IP）")
-        return {}
-
-    except Exception as e:
-        st.warning(f"⚠️ TWSE API錯誤: {e}")
-        return {}
-
-
-# ✅ ===== Yahoo 歷史資料（加強 retry）=====
+# ===== Yahoo資料 =====
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
 
     for i in range(3):
         try:
-            data = yf.download(
+            df = yf.download(
                 tickers,
                 period="6mo",
                 interval="1d",
@@ -67,16 +22,15 @@ def get_all_yahoo_hist(stock_list):
                 group_by='ticker',
                 auto_adjust=True
             )
-            return data
+            return df
         except Exception as e:
-            print(f"Yahoo retry {i+1}:", e)
+            print(f"Yahoo retry {i+1}: {e}")
             time.sleep(2)
 
-    st.error("❌ Yahoo資料抓取失敗")
     return pd.DataFrame()
 
 
-def process_kd_logic(stock_id, live_info, hist_df):
+def process_kd_logic(stock_id, hist_df):
     try:
         if hist_df is None or hist_df.empty:
             return None
@@ -84,22 +38,11 @@ def process_kd_logic(stock_id, live_info, hist_df):
         hist = hist_df.dropna().copy()
         hist.columns = [c.lower() for c in hist.columns]
 
-        z = live_info.get('z', '-')
-        b = live_info.get('b', '-')
-        b = b.split('_')[0] if b else '-'
-        y = live_info.get('y', '0')
-
-        if z not in ['-', '']:
-            live_price = float(z)
-        elif b not in ['-', '']:
-            live_price = float(b)
-        else:
-            live_price = float(y)
-
-        y_price = float(y)
+        # ✅ 直接用最新收盤當「即時價」
+        live_price = float(hist['close'].iloc[-1])
+        y_price = float(hist['close'].iloc[-2])
 
         temp = hist.astype(float).copy()
-        temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
         temp['9h'] = temp['high'].rolling(9).max()
         temp['9l'] = temp['low'].rolling(9).min()
@@ -146,9 +89,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
         else:
             ma_status = "➖ 均線盤整"
 
-        name = live_info.get('n', stock_id)
-        if stock_id == "^TWII":
-            name = "加權指數"
+        name = stock_id if stock_id != "^TWII" else "加權指數"
 
         return {
             "代號": stock_id,
@@ -170,28 +111,24 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return None
 
 
-# ===== 2. 資料準備與計算 =====
+# ===== 股票清單 =====
 target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
-time_col1, time_col2 = st.columns([8, 2])
-
-with time_col1:
+# ===== 顯示時間 =====
+col1, col2 = st.columns([8, 2])
+with col1:
     taiwan_time = datetime.utcnow() + timedelta(hours=8)
     st.write("⏱️ 更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
 
-with time_col2:
-    if st.button("🔄 手動刷新", use_container_width=True):
+with col2:
+    if st.button("🔄 手動刷新"):
         st.rerun()
 
-
-prices = get_all_live_prices(target_stocks)
+# ===== 抓資料 =====
 hists = get_all_yahoo_hist(target_stocks)
 
 rows = []
-
 for sid in target_stocks:
-    live = prices.get(sid)
-
     key = f"{sid}.TW" if not sid.startswith("^") else sid
 
     hist = None
@@ -201,28 +138,25 @@ for sid in target_stocks:
     else:
         hist = hists
 
-    # ✅ fallback：沒有即時價格 → 用昨日收盤
-    if not live:
-        live = {"z": "-", "b": "-", "y": hist['Close'].iloc[-1] if hist is not None else 0}
-
-    if hist is not None:
-        result = process_kd_logic(sid, live, hist)
-        if result:
-            rows.append(result)
-
+    result = process_kd_logic(sid, hist)
+    if result:
+        rows.append(result)
 
 df = pd.DataFrame(rows)
 
-# ✅ 防空（避免 KeyError）
 if df.empty:
-    st.error("❌ 沒有任何股票資料（可能TWSE擋IP或Yahoo失敗）")
+    st.error("❌ Yahoo 沒抓到資料")
     st.stop()
-
 
 df = df.rename(columns={
     "代號": "代號/K線",
     "名稱": "名稱/成份股"
-}, errors="ignore")
+})
 
+# ===== 表格顯示 =====
+st.dataframe(df, use_container_width=True)
 
-df["代號_raw"] = df["代號/K線"]
+# ===== 自動刷新 =====
+time.sleep(30)
+st.rerun()
+``

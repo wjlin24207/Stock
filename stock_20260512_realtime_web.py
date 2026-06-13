@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（點擊 ❌ 刪除終極版）")
+st.title("📊 策略監控儀表板 V001")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})

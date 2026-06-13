@@ -14,7 +14,7 @@ st.title("📊 策略監控儀表板（動態控制台版）")
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 💡 核心修正：改用獨立的 key 來存股票陣列，避開與 multiselect 的 key 撞車
+# 💡 核心修正：將儲存陣列與 UI 選取陣列完全獨立分開，避開元件鎖定 Bug
 if "stored_portfolio" not in st.session_state:
     st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "stored_watchlist" not in st.session_state:
@@ -104,38 +104,37 @@ mode = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 
-# 通用新增邏輯（寫入獨立陣列）
-def logic_add_stock(input_str, target_key):
-    val = input_str.replace("，", ",").strip()
-    if val:
-        new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state[target_key] = list(dict.fromkeys(st.session_state[target_key] + new_stocks))
+# 根據目前在 UI 上勾選的狀態，即時同步更新後台儲存的陣列
+def sync_portfolio():
+    if "portfolio_ui_key" in st.session_state:
+        st.session_state.stored_portfolio = st.session_state.portfolio_ui_key
 
-# 根據選擇動態渲染
+def sync_watchlist():
+    if "watchlist_ui_key" in st.session_state:
+        st.session_state.stored_watchlist = st.session_state.watchlist_ui_key
+
+# 根據選擇動態渲染介面
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
     
-    # 💡 修正點：用 options 包含所有可能的值，並用 default 綁定獨立陣列
+    # 💡 終極方案：不使用 default 參數，改將儲存的狀態直接塞入 options 且綁定獨立 key 呼叫 callback 函數同步
     final_portfolio_list = st.sidebar.multiselect(
         "目前庫存（可點 X 刪除）：", 
         options=st.session_state.stored_portfolio,
-        default=st.session_state.stored_portfolio,
-        key="portfolio_ui"
+        key="portfolio_ui_key",
+        on_change=sync_portfolio
     )
-    # 使用者點選 X 刪除時，同步更新回獨立陣列
-    st.session_state.stored_portfolio = final_portfolio_list
     final_watchlist_list = st.session_state.stored_watchlist
     
     # 新增元件
-    p_col1, p_col2 = st.sidebar.columns([7, 3])
-    with p_col1:
-        p_input = st.text_input("輸入要加的庫存代號：", key="p_input_field", label_visibility="collapsed", placeholder="例如: 2317")
-    with p_col2:
-        if st.button("➕ 新增", key="p_btn", use_container_width=True): pass
-        
-    if p_input:
-        logic_add_stock(p_input, "stored_portfolio")
-        st.rerun()
+    p_input = st.sidebar.text_input("輸入要加的庫存代號（多檔請用逗號隔開）：", key="p_input_field", placeholder="例如: 2317,2303")
+    if st.sidebar.button("➕ 新增到庫存", key="p_btn", use_container_width=True) or p_input:
+        if p_input:
+            new_stocks = [s.strip() for s in p_input.replace("，", ",").split(",") if s.strip()]
+            st.session_state.stored_portfolio = list(dict.fromkeys(st.session_state.stored_portfolio + new_stocks))
+            # 💡 清空文字欄位，並透過 rerun 讓 multiselect 完全刷新
+            st.session_state.p_input_field = ""
+            st.rerun()
 
 else: # 💼 自選明細管理
     st.sidebar.subheader("💼 自選明細配置")
@@ -143,23 +142,24 @@ else: # 💼 自選明細管理
     final_watchlist_list = st.sidebar.multiselect(
         "目前自選（可點 X 刪除）：", 
         options=st.session_state.stored_watchlist,
-        default=st.session_state.stored_watchlist,
-        key="watchlist_ui"
+        key="watchlist_ui_key",
+        on_change=sync_watchlist
     )
-    # 使用者點選 X 刪除時，同步更新回獨立陣列
-    st.session_state.stored_watchlist = final_watchlist_list
     final_portfolio_list = st.session_state.stored_portfolio
     
     # 新增元件
-    w_col1, w_col2 = st.sidebar.columns([7, 3])
-    with w_col1:
-        w_input = st.text_input("輸入要加的自選代號：", key="w_input_field", label_visibility="collapsed", placeholder="例如: 2454")
-    with w_col2:
-        if st.button("➕ 新增", key="w_btn", use_container_width=True): pass
-        
-    if w_input:
-        logic_add_stock(w_input, "stored_watchlist")
-        st.rerun()
+    w_input = st.sidebar.text_input("輸入要加的自選代號（多檔請用逗號隔開）：", key="w_input_field", placeholder="例如: 2454,2881")
+    if st.sidebar.button("➕ 新增到自選", key="w_btn", use_container_width=True) or w_input:
+        if w_input:
+            new_stocks = [s.strip() for s in w_input.replace("，", ",").split(",") if s.strip()]
+            st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
+            # 💡 清空文字欄位，並透過 rerun 讓 multiselect 完全刷新
+            st.session_state.w_input_field = ""
+            st.rerun()
+
+# 確保就算切換模式，變數依然有拿到後台最新資料
+final_portfolio_list = st.session_state.stored_portfolio
+final_watchlist_list = st.session_state.stored_watchlist
 
 # === 後台合併總清單 ===
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))

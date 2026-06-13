@@ -42,48 +42,66 @@ def get_all_live_prices(stock_list):
         return price_map
     except: return {}
 
-def get_all_yahoo_hist(stock_list):
-    if not stock_list: return pd.DataFrame()
-    tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-    return yf.download(tickers, period="6mo", interval="1d", progress=False, group_by='ticker', auto_adjust=True)
+# 💡 安全抓取單檔歷史資料，避免一檔死全部死
+def get_single_yahoo_hist(sid):
+    ticker = f"{sid}.TW" if not sid.startswith("^") else sid
+    try:
+        df = yf.download(ticker, period="6mo", interval="1d", progress=False, auto_adjust=True)
+        if df.empty: return None
+        # 如果是多重索引欄位，轉為單層
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except:
+        return None
 
 def process_kd_logic(stock_id, live_info, hist_df):
     try:
         if hist_df is None or hist_df.empty: return None
         hist = hist_df.dropna().copy()
         hist.columns = [c.lower() for c in hist.columns]
+        
         z, b, y = live_info.get('z', '-'), live_info.get('b', '-'), live_info.get('y', '0')
         b = b.split('_')[0] if b else '-'
         live_price = float(z) if z not in ['-', ''] else (float(b) if b not in ['-', ''] else float(y))
         y_price = float(y)
+        
         庫存 = hist.astype(float).copy()
         庫存.iloc[-1, 庫存.columns.get_loc('close')] = live_price
+        
         庫存['9h'], 庫存['9l'] = 庫存['high'].rolling(9).max(), 庫存['low'].rolling(9).min()
-        庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫ucn['9l'] + 1e-9) if 'high' in 庫存.columns else 100 * (庫存['close'] - 庫存['low'].rolling(9).min()) / (庫存['high'].rolling(9).max() - 庫存['low'].rolling(9).min() + 1e-9)
+        
+        # 修正原本的錯字
+        庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫存['9l'] + 1e-9)
         庫存['rsv'] = 庫存['rsv'].fillna(50)
+        
         k, d = 50, 50
         for rsv in 庫存['rsv']:
             k = k * (2/3) + rsv * (1/3)
             d = d * (2/3) + k * (1/3)
+            
         ma5, ma10, ma20 = 庫存['close'].rolling(5).mean(), 庫存['close'].rolling(10).mean(), 庫存['close'].rolling(20).mean()
         ma5_t, ma10_t, ma20_t = ma5.iloc[-1], ma10.iloc[-1], ma20.iloc[-1]
         ma5_y, ma10_y = ma5.iloc[-2], ma10.iloc[-2]
+        
         diff = live_price - y_price
         percent = (diff / y_price * 100) if y_price > 0 else 0
+        
         signal = ["📈 KD多方" if k > d else "📉 KD空方"]
         if k < 30: signal.append("⚠️ KD超賣")
         elif k > 80: signal.append("🔥 KD超買")
         if ma5_y <= ma10_y and ma5_t > ma10_t: signal.append("✨ 均線黃金交叉")
         elif ma5_y >= ma10_y and ma5_t < ma10_t: signal.append("❌ 均線死亡交叉")
+        
         ma_status = "🚀 均線多頭" if live_price > ma5_t > ma10_t > ma20_t else ("💥 均線空頭" if live_price < ma5_t < ma10_t < ma20_t else "➖ 均線盤整")
         name = "加權指數" if stock_id == "^TWII" else live_info.get('n', stock_id)
+        
         return {"代號": stock_id, "名稱": name, "價格": round(live_price, 2), "漲跌": round(diff, 2), "漲幅%": round(percent, 2), "K": round(k, 2), "D": round(d, 2), "MA5": round(ma5_t, 2), "MA10": round(ma10_t, 2), "MA20": round(ma20_t, 2), "均線狀態": ma_status, "訊號": " | ".join(signal)}
     except: return None
 
 # ==================== 2. 側邊欄：獨立控制區 ====================
 st.sidebar.header("🛠️ 監控清單獨立設定")
 
-# 處理新增邏輯的通用函式
 def logic_add_stock(input_str, target_key):
     val = input_str.replace("，", ",").strip()
     if val:
@@ -98,18 +116,16 @@ final_portfolio_list = st.sidebar.multiselect(
     key="portfolio_ms"
 )
 
-# 新增庫存佈局 (輸入框 + 按鈕)
 p_col1, p_col2 = st.sidebar.columns([7, 3])
 with p_col1:
     p_input = st.text_input("輸入庫存代號：", key="p_input_field", label_visibility="collapsed", placeholder="例如: 2317")
 with p_col2:
-    if st.button("➕ 新增", key="p_btn", use_container_width=True) or (p_input and st.session_state.get('p_input_field_changed', False)):
+    if st.button("➕ 新增", key="p_btn", use_container_width=True):
         pass
 
-# 檢查是否有輸入並點擊
 if p_input:
     logic_add_stock(p_input, "portfolio_ms")
-    st.rerun() # 強制刷新畫面讓清單立刻跑出來
+    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -121,18 +137,16 @@ final_watchlist_list = st.sidebar.multiselect(
     key="watchlist_ms"
 )
 
-# 新增自選佈局 (輸入框 + 按鈕)
 w_col1, w_col2 = st.sidebar.columns([7, 3])
 with w_col1:
     w_input = st.text_input("輸入自選代號：", key="w_input_field", label_visibility="collapsed", placeholder="例如: 2454")
-with w_col2:
+with p_col2: # 修正此處排版對齊按鈕
     if st.button("➕ 新增", key="w_btn", use_container_width=True):
         pass
 
 if w_input:
     logic_add_stock(w_input, "watchlist_ms")
-    st.rerun() # 強制刷新畫面讓清單立刻跑出來
-
+    st.rerun()
 
 # === 合併總清單 ===
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))
@@ -151,40 +165,35 @@ if not target_stocks:
     time.sleep(2)
     st.rerun()
 
+# 抓取即時價格 (總體請求)
 prices = get_all_live_prices(target_stocks)
-hists = get_all_yahoo_hist(target_stocks)
 
 rows = []
+failed_stocks = [] # 紀錄抓取失敗的股票
+
+# 💡 核心改動：改為逐檔安全抓取 Yahoo K 線歷史資料，不互相影響
 for sid in target_stocks:
     live = prices.get(sid)
-    key = f"{sid}.TW" if not sid.startswith("^") else sid
+    hist = get_single_yahoo_hist(sid)
     
-    # 安全獲取歷史資料
-    hist = None
-    if isinstance(hists.columns, pd.MultiIndex):
-        if key in hists.columns.levels[0]: hist = hists[key]
-    else:
-        if not hists.empty: hist = hists
-
-    if live and hist is not None:
+    if live and hist is not None and not hist.empty:
         result = process_kd_logic(sid, live, hist)
-        if result: rows.append(result)
+        if result:
+            rows.append(result)
+        else:
+            failed_stocks.append(sid)
+    else:
+        failed_stocks.append(sid)
 
-# 如果有輸入股票，但 rows 是空的，代表代號可能有錯
-if not rows and target_stocks:
-    st.error(f"❌ 找不到代號 {target_stocks} 的資料，請檢查代號是否正確（台股不需打 .TW，大盤請打 ^TWII）。")
-    if st.button("點此重置清單"):
-        st.session_state.portfolio_ms = ["0056", "00878"]
-        st.session_state.watchlist_ms = ["^TWII", "0050"]
-        st.rerun()
-    st.stop()
+# 提示抓取失敗的特定股票，但不阻礙整體程式運行
+if failed_stocks:
+    st.warning(f"⚠️ 提示：無法從 Yahoo Finance 獲取以下代號的 K 線歷史資料: {', '.join(failed_stocks)} (可能代號不正確或無歷史數據)")
 
 df_all = pd.DataFrame(rows)
 if not df_all.empty:
     df_all = df_all.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     df_all["代號_raw"] = df_all["代號/K線"]
 
-    # 超連結處理
     def make_id_link(row):
         sid = row["代號_raw"]
         url = "https://tw.stock.yahoo.com/tw-market" if sid == "^TWII" else f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"

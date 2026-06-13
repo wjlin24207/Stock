@@ -14,11 +14,11 @@ st.title("📊 策略監控儀表板（動態控制台版）")
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 💡 初始化資料陣列（僅用來儲存資料，絕不與 UI 元件的 Key 衝突）
-if "stored_portfolio" not in st.session_state:
-    st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
-if "stored_watchlist" not in st.session_state:
-    st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
+# 💡 【核心重構】：直接將這兩個 key 當作 multiselect 的唯一狀態源，移除中介的 stored 變數，防死防誤刪！
+if "portfolio_ui_key" not in st.session_state:
+    st.session_state.portfolio_ui_key = ["0056", "00878", "00919", "0050", "2330", "3711"]
+if "watchlist_ui_key" not in st.session_state:
+    st.session_state.watchlist_ui_key = ["^TWII", "0050", "2454", "2317"]
 
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
@@ -95,7 +95,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
     except: return None
 
 
-# ==================== 2. 側邊欄：標準 Callback 新增機制 ====================
+# ==================== 2. 側邊欄：獨立 Callback 控制台 ====================
 st.sidebar.header("🛠️ 監控清單控制台")
 
 mode = st.sidebar.selectbox(
@@ -105,64 +105,53 @@ mode = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 
-# 💡 透過標準 Callback 機制新增，完全繞過直接修改 session_state 的限制
+# 💡 乾淨安全的新增 Callback：只在確定按 Enter 或按鈕時，才動態把新代號塞進陣列裡
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.stored_portfolio = list(dict.fromkeys(st.session_state.stored_portfolio + new_stocks))
+        st.session_state.portfolio_ui_key = list(dict.fromkeys(st.session_state.portfolio_ui_key + new_stocks))
 
 def do_add_watchlist():
     val = st.session_state.get("w_input_field", "").replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
-
-# 當使用者在 multiselect 點 X 刪除時同步後台資料
-def sync_portfolio():
-    if "portfolio_ui_key" in st.session_state:
-        st.session_state.stored_portfolio = st.session_state.portfolio_ui_key
-
-def sync_watchlist():
-    if "watchlist_ui_key" in st.session_state:
-        st.session_state.stored_watchlist = st.session_state.watchlist_ui_key
+        st.session_state.watchlist_ui_key = list(dict.fromkeys(st.session_state.watchlist_ui_key + new_stocks))
 
 
 # 根據下拉選單動態渲染
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
     
+    # 💡 移除 `default` 參數與 `on_change` 同步回呼，直接用單一 key 深度綁定 options！這樣點選 X 就只會精準移除該股，絕不全刪
     final_portfolio_list = st.sidebar.multiselect(
         "目前庫存（可點 X 刪除）：", 
-        options=st.session_state.stored_portfolio,
-        key="portfolio_ui_key",
-        on_change=sync_portfolio
+        options=st.session_state.portfolio_ui_key,
+        key="portfolio_ui_key"
     )
-    final_watchlist_list = st.session_state.stored_watchlist
-    
-    # 💡 綁定回呼函式，讓 Enter 和點擊按鈕共用同一個安全通道
+    final_watchlist_list = st.session_state.watchlist_ui_key
+
     st.sidebar.text_input("輸入要加的庫存代號：", key="p_input_field", placeholder="例如: 2317", on_change=do_add_portfolio)
     st.sidebar.button("➕ 新增到庫存", key="p_btn", use_container_width=True, on_click=do_add_portfolio)
 
 else: # 💼 自選明細管理
     st.sidebar.subheader("💼 自選明細配置")
     
+    # 💡 移除 `default` 參數與 `on_change` 同步回呼，直接用單一 key 深度綁定 options！
     final_watchlist_list = st.sidebar.multiselect(
         "目前自選（可點 X 刪除）：", 
-        options=st.session_state.stored_watchlist,
-        key="watchlist_ui_key",
-        on_change=sync_watchlist
+        options=st.session_state.watchlist_ui_key,
+        key="watchlist_ui_key"
     )
-    final_portfolio_list = st.session_state.stored_portfolio
+    final_portfolio_list = st.session_state.portfolio_ui_key
     
-    # 💡 綁定回呼函式，讓 Enter 和點擊按鈕共用同一個安全通道
     st.sidebar.text_input("輸入要加的自選代號：", key="w_input_field", placeholder="例如: 2454", on_change=do_add_watchlist)
     st.sidebar.button("➕ 新增到自選", key="w_btn", use_container_width=True, on_click=do_add_watchlist)
 
 
-# 重新校正資料，確保取得後台最新異動
-final_portfolio_list = st.session_state.stored_portfolio
-final_watchlist_list = st.session_state.stored_watchlist
+# 重新撈取最新的全域股票名單
+final_portfolio_list = st.session_state.portfolio_ui_key
+final_watchlist_list = st.session_state.watchlist_ui_key
 
 # === 後台合併總清單 ===
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))

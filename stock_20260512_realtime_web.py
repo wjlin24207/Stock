@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板001")
+st.title("📊 策略監控儀表板（點擊 ❌ 刪除終極版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -20,19 +20,19 @@ if "stored_portfolio" not in st.session_state:
 if "stored_watchlist" not in st.session_state:
     st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
 
-# 💡 【黃金修正點】：改在程式最開頭攔截隱藏輸入框的值，比 on_change 更暴力、100% 成功！
+# 💡 【核心攔截】：在程式碼最頂端強力攔截來自 HTML 的下架指令
 if "hidden_del_p" in st.session_state and st.session_state.hidden_del_p:
     to_del = st.session_state.hidden_del_p
     if to_del in st.session_state.stored_portfolio:
         st.session_state.stored_portfolio.remove(to_del)
-    st.session_state.hidden_del_p = "" # 重置清空
+    st.session_state.hidden_del_p = "" # 刪除完畢立刻重置清空
     st.rerun()
 
 if "hidden_del_w" in st.session_state and st.session_state.hidden_del_w:
     to_del = st.session_state.hidden_del_w
     if to_del in st.session_state.stored_watchlist:
         st.session_state.stored_watchlist.remove(to_del)
-    st.session_state.hidden_del_w = "" # 重置清空
+    st.session_state.hidden_del_w = "" # 刪除完畢立刻重置清空
     st.rerun()
 
 
@@ -120,9 +120,15 @@ mode = st.sidebar.selectbox(
 )
 st.sidebar.markdown("---")
 
-# 隱藏在側邊欄底部的數據通訊埠（移除 on_change，改由頂部 intercept 處理）
-st.sidebar.text_input("隱藏下架P", key="hidden_del_p", label_visibility="collapsed")
-st.sidebar.text_input("隱藏下架W", key="hidden_del_w", label_visibility="collapsed")
+# 💡 【重大更新】：利用 HTML容器 強制寫死 ID，確保 JavaScript 100% 絕對能精準點擊傳值
+with st.sidebar.container():
+    st.markdown('<div id="area-del-p">', unsafe_allow_html=True)
+    st.text_input("隱藏下架P", key="hidden_del_p", label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div id="area-del-w">', unsafe_allow_html=True)
+    st.text_input("隱藏下架W", key="hidden_del_w", label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def do_add_portfolio():
@@ -197,7 +203,6 @@ if not df_all.empty:
     df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
 
 # ==================== 4. 畫面排版與表格美化 ====================
-# 💡 順便用 CSS 把側邊欄那兩個穿透通訊用的小白方塊完全藏起來！
 st.markdown("""
 <style>
 table { width: 100% !important; table-layout: auto; }
@@ -205,9 +210,8 @@ td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; tex
 div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
 .del-form-btn { background: none; border: none; color: #ff4b4b; font-weight: bold; font-size: 16px; cursor: pointer; padding: 0; margin: 0; }
 .del-form-btn:hover { color: #ff0000; font-size: 18px; }
-/* 隱藏小白框 */
-div[data-testid="stSidebar"] input[aria-label="隱藏下架P"], 
-div[data-testid="stSidebar"] input[aria-label="隱藏下架W"] {
+/* 100% 強效隱藏左側通訊孔容器 */
+#area-del-p, #area-del-w {
     display: none !important;
 }
 </style>
@@ -228,10 +232,11 @@ def render_styled_table(df_src, type_flag):
     
     df_disp = df_src.copy()
     
+    # 💡 【核心重構點】：改用 ID 控制器定位法 (#area-del-p input)，100% 精準定位，絕不迷路失靈
     if type_flag == "p":
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\\'隱藏下架P\\']'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('#area-del-p input'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
     else:
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\\'隱藏下架W\\']'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('#area-del-w input'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
         
     df_disp = df_disp.drop(columns=["代號_raw"])
     

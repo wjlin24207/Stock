@@ -14,11 +14,11 @@ st.title("📊 策略監控儀表板（專業版）")
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 初始化 session_state（確保重新整理時自選紀錄不丟失）
-if "portfolio_list" not in st.session_state:
-    st.session_state.portfolio_list = ["0056", "00878", "00919", "0050", "2330", "3711"]
-if "watchlist_list" not in st.session_state:
-    st.session_state.watchlist_list = ["^TWII", "0050", "2454", "2317"]
+# 初始化 session_state，直接作為選單的唯一資料源
+if "portfolio_ms" not in st.session_state:
+    st.session_state.portfolio_ms = ["0056", "00878", "00919", "0050", "2330", "3711"]
+if "watchlist_ms" not in st.session_state:
+    st.session_state.watchlist_ms = ["^TWII", "0050", "2454", "2317"]
 
 # ===== 股票資料抓取與 KD 計算函式 (保持不變) =====
 def get_all_live_prices(stock_list):
@@ -80,34 +80,34 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return {"代號": stock_id, "名稱": name, "價格": round(live_price, 2), "漲跌": round(diff, 2), "漲幅%": round(percent, 2), "K": round(k, 2), "D": round(d, 2), "MA5": round(ma5_t, 2), "MA10": round(ma10_t, 2), "MA20": round(ma20_t, 2), "均線狀態": ma_status, "訊號": " | ".join(signal)}
     except: return None
 
-# ==================== 2. 側邊欄：回呼函式與獨立控制區 ====================
+# ==================== 2. 側邊欄：獨立控制區 ====================
 st.sidebar.header("🛠️ 監控清單獨立設定")
 
-# 透過 Callback 函式，在按下 Enter 的瞬間「立刻」更新清單並強制刷新網頁
+# 透過 Callback 函式，直接把新個股「塞進選單的 Key」裡面
 def add_portfolio_stock():
     val = st.session_state.p_input.replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.portfolio_list = list(dict.fromkeys(st.session_state.portfolio_list + new_stocks))
-        st.session_state.p_input = "" # 清空輸入框
+        # 直接更新 multiselect 的狀態庫
+        st.session_state.portfolio_ms = list(dict.fromkeys(st.session_state.portfolio_ms + new_stocks))
+        st.session_state.p_input = ""  # 清空文字輸入框
 
 def add_watchlist_stock():
     val = st.session_state.w_input.replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.watchlist_list = list(dict.fromkeys(st.session_state.watchlist_list + new_stocks))
-        st.session_state.w_input = "" # 清空輸入框
+        # 直接更新 multiselect 的狀態庫
+        st.session_state.watchlist_ms = list(dict.fromkeys(st.session_state.watchlist_ms + new_stocks))
+        st.session_state.w_input = ""  # 清空文字輸入框
 
 # --- 2A. 庫存股管理 ---
 st.sidebar.subheader("📌 庫存個股管理")
+# 💡 關鍵修改：不給 options 固定死，options 必須包含目前選中的所有股票，且不要用 default 參數
 final_portfolio_list = st.sidebar.multiselect(
     "目前庫存清單（可在此刪除）：", 
-    options=st.session_state.portfolio_list, 
-    default=st.session_state.portfolio_list,
+    options=st.session_state.portfolio_ms, 
     key="portfolio_ms"
 )
-# 更新 session_state 確保同步
-st.session_state.portfolio_list = final_portfolio_list
 
 st.sidebar.text_input(
     "✍️ 新增庫存代號（按 Enter 確定）：", 
@@ -121,12 +121,9 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("💼 自選明細管理")
 final_watchlist_list = st.sidebar.multiselect(
     "目前自選清單（可在此刪除）：", 
-    options=st.session_state.watchlist_list, 
-    default=st.session_state.watchlist_list,
+    options=st.session_state.watchlist_ms, 
     key="watchlist_ms"
 )
-# 更新 session_state 確保同步
-st.session_state.watchlist_list = final_watchlist_list
 
 st.sidebar.text_input(
     "✍️ 新增自選代號（按 Enter 確定）：", 
@@ -229,7 +226,7 @@ with st.container():
         watch_styled = watch_styled.apply(lambda r: apply_price_color(df_watchlist_display, r), subset=["價格"], axis=1)
         watch_styled = watch_styled.apply(lambda r: apply_ma_color(df_watchlist_display, r), subset=["MA5", "MA10", "MA20"], axis=1)
         st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
-    else: st.info("💡 目前沒有設定任何自選股。")
+    else: st.info("💡 目前沒有設定 any 自選股。")
 
 # ===== 5. 自動循環刷新 =====
 time.sleep(30)

@@ -9,18 +9,18 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（專業版）")
+st.title("📊 策略監控儀表板（專業升級版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 初始化 session_state，直接作為選單的唯一資料源
+# 初始化 session_state，做為選單的唯一真實資料源
 if "portfolio_ms" not in st.session_state:
     st.session_state.portfolio_ms = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "watchlist_ms" not in st.session_state:
     st.session_state.watchlist_ms = ["^TWII", "0050", "2454", "2317"]
 
-# ===== 股票資料抓取與 KD 計算函式 (保持不變) =====
+# ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
     if not stock_list: return {}
     ex_ch_list = []
@@ -59,7 +59,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
         庫存 = hist.astype(float).copy()
         庫存.iloc[-1, 庫存.columns.get_loc('close')] = live_price
         庫存['9h'], 庫存['9l'] = 庫存['high'].rolling(9).max(), 庫存['low'].rolling(9).min()
-        庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫存['9l'] + 1e-9)
+        庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫ucn['9l'] + 1e-9) if 'high' in 庫存.columns else 100 * (庫存['close'] - 庫存['low'].rolling(9).min()) / (庫存['high'].rolling(9).max() - 庫存['low'].rolling(9).min() + 1e-9)
         庫存['rsv'] = 庫存['rsv'].fillna(50)
         k, d = 50, 50
         for rsv in 庫存['rsv']:
@@ -83,53 +83,56 @@ def process_kd_logic(stock_id, live_info, hist_df):
 # ==================== 2. 側邊欄：獨立控制區 ====================
 st.sidebar.header("🛠️ 監控清單獨立設定")
 
-# 透過 Callback 函式，直接把新個股「塞進選單的 Key」裡面
-def add_portfolio_stock():
-    val = st.session_state.p_input.replace("，", ",").strip()
+# 處理新增邏輯的通用函式
+def logic_add_stock(input_str, target_key):
+    val = input_str.replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        # 直接更新 multiselect 的狀態庫
-        st.session_state.portfolio_ms = list(dict.fromkeys(st.session_state.portfolio_ms + new_stocks))
-        st.session_state.p_input = ""  # 清空文字輸入框
-
-def add_watchlist_stock():
-    val = st.session_state.w_input.replace("，", ",").strip()
-    if val:
-        new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        # 直接更新 multiselect 的狀態庫
-        st.session_state.watchlist_ms = list(dict.fromkeys(st.session_state.watchlist_ms + new_stocks))
-        st.session_state.w_input = ""  # 清空文字輸入框
+        st.session_state[target_key] = list(dict.fromkeys(st.session_state[target_key] + new_stocks))
 
 # --- 2A. 庫存股管理 ---
 st.sidebar.subheader("📌 庫存個股管理")
-# 💡 關鍵修改：不給 options 固定死，options 必須包含目前選中的所有股票，且不要用 default 參數
 final_portfolio_list = st.sidebar.multiselect(
-    "目前庫存清單（可在此刪除）：", 
+    "目前庫存清單（可點 X 刪除）：", 
     options=st.session_state.portfolio_ms, 
     key="portfolio_ms"
 )
 
-st.sidebar.text_input(
-    "✍️ 新增庫存代號（按 Enter 確定）：", 
-    key="p_input", 
-    on_change=add_portfolio_stock
-)
+# 新增庫存佈局 (輸入框 + 按鈕)
+p_col1, p_col2 = st.sidebar.columns([7, 3])
+with p_col1:
+    p_input = st.text_input("輸入庫存代號：", key="p_input_field", label_visibility="collapsed", placeholder="例如: 2317")
+with p_col2:
+    if st.button("➕ 新增", key="p_btn", use_container_width=True) or (p_input and st.session_state.get('p_input_field_changed', False)):
+        pass
+
+# 檢查是否有輸入並點擊
+if p_input:
+    logic_add_stock(p_input, "portfolio_ms")
+    st.rerun() # 強制刷新畫面讓清單立刻跑出來
 
 st.sidebar.markdown("---")
 
 # --- 2B. 自選明細管理 ---
 st.sidebar.subheader("💼 自選明細管理")
 final_watchlist_list = st.sidebar.multiselect(
-    "目前自選清單（可在此刪除）：", 
+    "目前自選清單（可點 X 刪除）：", 
     options=st.session_state.watchlist_ms, 
     key="watchlist_ms"
 )
 
-st.sidebar.text_input(
-    "✍️ 新增自選代號（按 Enter 確定）：", 
-    key="w_input", 
-    on_change=add_watchlist_stock
-)
+# 新增自選佈局 (輸入框 + 按鈕)
+w_col1, w_col2 = st.sidebar.columns([7, 3])
+with w_col1:
+    w_input = st.text_input("輸入自選代號：", key="w_input_field", label_visibility="collapsed", placeholder="例如: 2454")
+with w_col2:
+    if st.button("➕ 新增", key="w_btn", use_container_width=True):
+        pass
+
+if w_input:
+    logic_add_stock(w_input, "watchlist_ms")
+    st.rerun() # 強制刷新畫面讓清單立刻跑出來
+
 
 # === 合併總清單 ===
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))
@@ -155,34 +158,46 @@ rows = []
 for sid in target_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
-    hist = hists[key] if isinstance(hists.columns, pd.MultiIndex) and key in hists.columns.levels[0] else hists
+    
+    # 安全獲取歷史資料
+    hist = None
+    if isinstance(hists.columns, pd.MultiIndex):
+        if key in hists.columns.levels[0]: hist = hists[key]
+    else:
+        if not hists.empty: hist = hists
+
     if live and hist is not None:
         result = process_kd_logic(sid, live, hist)
         if result: rows.append(result)
 
-if not rows:
-    st.error("❌ 抓不到任何股票資料，請檢查網路或代號。")
-    time.sleep(2)
-    st.rerun()
+# 如果有輸入股票，但 rows 是空的，代表代號可能有錯
+if not rows and target_stocks:
+    st.error(f"❌ 找不到代號 {target_stocks} 的資料，請檢查代號是否正確（台股不需打 .TW，大盤請打 ^TWII）。")
+    if st.button("點此重置清單"):
+        st.session_state.portfolio_ms = ["0056", "00878"]
+        st.session_state.watchlist_ms = ["^TWII", "0050"]
+        st.rerun()
+    st.stop()
 
 df_all = pd.DataFrame(rows)
-df_all = df_all.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
-df_all["代號_raw"] = df_all["代號/K線"]
+if not df_all.empty:
+    df_all = df_all.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
+    df_all["代號_raw"] = df_all["代號/K線"]
 
-# 超連結處理
-def make_id_link(row):
-    sid = row["代號_raw"]
-    url = "https://tw.stock.yahoo.com/tw-market" if sid == "^TWII" else f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
-    return f'<a href="{url}" target="_blank">{sid}</a>'
+    # 超連結處理
+    def make_id_link(row):
+        sid = row["代號_raw"]
+        url = "https://tw.stock.yahoo.com/tw-market" if sid == "^TWII" else f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+        return f'<a href="{url}" target="_blank">{sid}</a>'
 
-def make_name_link(row):
-    sid = row["代號_raw"]
-    name = row["名稱/成份股"]
-    url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW" if str(sid).startswith("00") else None
-    return f'<a href="{url}" target="_blank">{name}</a>' if url else name
+    def make_name_link(row):
+        sid = row["代號_raw"]
+        name = row["名稱/成份股"]
+        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW" if str(sid).startswith("00") else None
+        return f'<a href="{url}" target="_blank">{name}</a>' if url else name
 
-df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
-df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
+    df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
+    df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
 
 # ==================== 4. 畫面排版與分流渲染 ====================
 st.markdown("<style>table { width: 100% !important; table-layout: auto; } td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; } div[data-testid='stMarkdownContainer'] { overflow-x: auto; }</style>", unsafe_allow_html=True)
@@ -201,13 +216,15 @@ top_col1, top_col2 = st.columns([6, 4])
 # === 左側：庫存股監控 ===
 with top_col1:
     st.subheader("📌 庫存股監控")
-    df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].copy()
-    if not df_portfolio.empty:
-        df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號", "代號_raw"])
-        port_styled = df_portfolio_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
-        port_styled = port_styled.apply(lambda r: apply_price_color(df_portfolio_display, r), subset=["價格"], axis=1)
-        st.markdown(port_styled.to_html(escape=False), unsafe_allow_html=True)
-    else: st.info("💡 目前沒有設定任何庫存股。")
+    if not df_all.empty and "代號_raw" in df_all.columns:
+        df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].copy()
+        if not df_portfolio.empty:
+            df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號", "代號_raw"])
+            port_styled = df_portfolio_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
+            port_styled = port_styled.apply(lambda r: apply_price_color(df_portfolio_display, r), subset=["價格"], axis=1)
+            st.markdown(port_styled.to_html(escape=False), unsafe_allow_html=True)
+        else: st.info("💡 目前沒有設定任何庫存股。")
+    else: st.info("💡 目前沒有資料。")
 
 # === 右側：新聞直播 ===
 with top_col2:
@@ -219,14 +236,16 @@ with top_col2:
 st.divider()
 with st.container():
     st.subheader("💼 自選明細完整儀表板")
-    df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].copy()
-    if not df_watchlist.empty:
-        df_watchlist_display = df_watchlist.drop(columns=["代號_raw"])
-        watch_styled = df_watchlist_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
-        watch_styled = watch_styled.apply(lambda r: apply_price_color(df_watchlist_display, r), subset=["價格"], axis=1)
-        watch_styled = watch_styled.apply(lambda r: apply_ma_color(df_watchlist_display, r), subset=["MA5", "MA10", "MA20"], axis=1)
-        st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
-    else: st.info("💡 目前沒有設定 any 自選股。")
+    if not df_all.empty and "代號_raw" in df_all.columns:
+        df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].copy()
+        if not df_watchlist.empty:
+            df_watchlist_display = df_watchlist.drop(columns=["代號_raw"])
+            watch_styled = df_watchlist_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
+            watch_styled = watch_styled.apply(lambda r: apply_price_color(df_watchlist_display, r), subset=["價格"], axis=1)
+            watch_styled = watch_styled.apply(lambda r: apply_ma_color(df_watchlist_display, r), subset=["MA5", "MA10", "MA20"], axis=1)
+            st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
+        else: st.info("💡 目前沒有設定任何自選股。")
+    else: st.info("💡 目前沒有資料。")
 
 # ===== 5. 自動循環刷新 =====
 time.sleep(30)

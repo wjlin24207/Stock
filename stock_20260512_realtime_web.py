@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（點擊 ❌ 刪除終極版）")
+st.title("📊 策略監控儀表板（100% 原生極速版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -19,22 +19,6 @@ if "stored_portfolio" not in st.session_state:
     st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "stored_watchlist" not in st.session_state:
     st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
-
-# 💡 【核心攔截】：在程式碼最頂端強力攔截來自 HTML 的下架指令
-if "hidden_del_p" in st.session_state and st.session_state.hidden_del_p:
-    to_del = st.session_state.hidden_del_p
-    if to_del in st.session_state.stored_portfolio:
-        st.session_state.stored_portfolio.remove(to_del)
-    st.session_state.hidden_del_p = "" # 刪除完畢立刻重置清空
-    st.rerun()
-
-if "hidden_del_w" in st.session_state and st.session_state.hidden_del_w:
-    to_del = st.session_state.hidden_del_w
-    if to_del in st.session_state.stored_watchlist:
-        st.session_state.stored_watchlist.remove(to_del)
-    st.session_state.hidden_del_w = "" # 刪除完畢立刻重置清空
-    st.rerun()
-
 
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
@@ -120,17 +104,6 @@ mode = st.sidebar.selectbox(
 )
 st.sidebar.markdown("---")
 
-# 💡 【重大更新】：利用 HTML容器 強制寫死 ID，確保 JavaScript 100% 絕對能精準點擊傳值
-with st.sidebar.container():
-    st.markdown('<div id="area-del-p">', unsafe_allow_html=True)
-    st.text_input("隱藏下架P", key="hidden_del_p", label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div id="area-del-w">', unsafe_allow_html=True)
-    st.text_input("隱藏下架W", key="hidden_del_w", label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
     if val:
@@ -142,7 +115,6 @@ def do_add_watchlist():
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
         st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
-
 
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
@@ -184,102 +156,154 @@ for sid in target_stocks:
         if result: rows.append(result)
 
 df_all = pd.DataFrame(rows)
-if not df_all.empty:
-    df_all = df_all.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
-    df_all["代號_raw"] = df_all["代號/K線"]
 
-    def make_id_link(row):
-        sid = row["代號_raw"]
-        url = "https://tw.stock.yahoo.com/tw-market" if sid == "^TWII" else f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
-        return f'<a href="{url}" target="_blank">{sid}</a>'
 
-    def make_name_link(row):
-        sid = row["代號_raw"]
-        name = row["名稱/成份股"]
-        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW" if str(sid).startswith("00") else None
-        return f'<a href="{url}" target="_blank">{name}</a>' if url else name
-
-    df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
-    df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
-
-# ==================== 4. 畫面排版與表格美化 ====================
+# ==================== 4. 畫面排版與【100% 原生分欄渲染】 ====================
+# 全域文字美化與微調
 st.markdown("""
 <style>
-table { width: 100% !important; table-layout: auto; }
-td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; text-align: center !important; }
-div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
-.del-form-btn { background: none; border: none; color: #ff4b4b; font-weight: bold; font-size: 16px; cursor: pointer; padding: 0; margin: 0; }
-.del-form-btn:hover { color: #ff0000; font-size: 18px; }
-/* 100% 強效隱藏左側通訊孔容器 */
-#area-del-p, #area-del-w {
-    display: none !important;
-}
+div[data-testid="stMetric"] { background: #f8f9fa; padding: 5px 10px; border-radius: 5px; text-align: center; }
+hr { margin: 15px 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-def color(val): return "color:red" if val > 0 else "color:green" if val < 0 else ""
-def apply_price_color(df_src, row):
-    diff = df_src.loc[row.name, "漲跌"]
-    return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
-def color_ma(val, price): return "color:red" if val < price else "color:green" if val > price else ""
-def apply_ma_color(df_src, row):
-    price = df_src.loc[row.name, "價格"]
-    return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
+# 💡 數字格式化與顏色標記輔助函式
+def get_colored_text(val, text_str, is_bold=False):
+    bold_style = "font-weight:bold;" if is_bold else ""
+    if val > 0: return f'<span style="color:red;{bold_style}">{text_str}</span>'
+    elif val < 0: return f'<span style="color:green;{bold_style}">{text_str}</span>'
+    return f'<span style="{bold_style}">{text_str}</span>'
 
+def get_ma_color_text(val, price):
+    if val < price: return f'<span style="color:red;">{val:,.2f}</span>'
+    return f'<span style="color:green;">{val:,.2f}</span>'
 
-def render_styled_table(df_src, type_flag):
-    if df_src.empty: return "💡 目前沒有資料"
+def make_html_link(sid, name, is_etf=False):
+    if sid == "^TWII":
+        return '<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">加權指數</a>'
     
-    df_disp = df_src.copy()
-    
-    # 💡 【核心重構點】：改用 ID 控制器定位法 (#area-del-p input)，100% 精準定位，絕不迷路失靈
-    if type_flag == "p":
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('#area-del-p input'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
+    id_link = f'<a href="https://tw.stock.yahoo.com/quote/{sid}/technical-analysis" target="_blank">{sid}</a>'
+    if is_etf:
+        name_link = f'<a href="https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW" target="_blank">{name}</a>'
     else:
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('#area-del-w input'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('input', {{bubbles:true}})); inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
-        
-    df_disp = df_disp.drop(columns=["代號_raw"])
-    
-    styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"}).hide(axis="index")
-    styled = styled.map(color, subset=["漲跌", "漲幅%"])
-    styled = styled.apply(lambda r: apply_price_color(df_disp, r), subset=["價格"], axis=1)
-    if "MA5" in df_disp.columns:
-        styled = styled.apply(lambda r: apply_ma_color(df_disp, r), subset=["MA5", "MA10", "MA20"], axis=1)
-        
-    return styled.to_html(escape=False)
+        name_link = name
+    return id_link, name_link
 
 
 top_col1, top_col2 = st.columns([6, 4])
 
-# === 左側：庫存股監控 ===
+# === 左側：📌 庫存股監控 (原生排版) ===
 with top_col1:
     st.subheader("📌 庫存股監控")
-    if not df_all.empty and "代號_raw" in df_all.columns:
-        df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].reset_index(drop=True)
-        if not df_portfolio.empty:
-            df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號"])
-            html_table = render_styled_table(df_portfolio_display, "p")
-            st.markdown(html_table, unsafe_allow_html=True)
-        else: st.info("💡 目前庫存股為空。")
-    else: st.info("💡 目前沒有資料。")
+    
+    # 篩選庫存股資料
+    df_portfolio = df_all[df_all["代號"].isin(final_portfolio_list)].copy()
+    
+    if not df_portfolio.empty:
+        # 表頭列配置
+        h_cols = st.columns([0.6, 1.2, 2.0, 1.2, 1.2, 1.2, 1.0, 1.0])
+        h_cols[0].markdown("**操作**")
+        h_cols[1].markdown("**代號**")
+        h_cols[2].markdown("**名稱**")
+        h_cols[3].markdown("**價格**")
+        h_cols[4].markdown("**漲跌**")
+        h_cols[5].markdown("**漲幅%**")
+        h_cols[6].markdown("**K**")
+        h_cols[7].markdown("**D**")
+        st.divider()
+        
+        # 逐筆渲染股票數據，並在最前面配備真正的 st.button ❌
+        for idx, row in df_portfolio.iterrows():
+            sid = row["代號"]
+            diff = row["漲跌"]
+            
+            # 超連結轉換
+            id_html, name_html = make_html_link(sid, row["名稱"], str(sid).startswith("00"))
+            
+            r_cols = st.columns([0.6, 1.2, 2.0, 1.2, 1.2, 1.2, 1.0, 1.0])
+            
+            # 💡 核心刪除：點擊 ❌ 後直接後台移除，完全不需要網頁指令穿透，絕不失效！
+            if r_cols[0].button("❌", key=f"del_p_{sid}", help=f"刪除 {sid}", use_container_width=True):
+                st.session_state.stored_portfolio.remove(sid)
+                st.rerun()
+                
+            r_cols[1].markdown(id_html, unsafe_allow_html=True)
+            r_cols[2].markdown(name_html, unsafe_allow_html=True)
+            r_cols[3].markdown(get_colored_text(diff, f"{row['價格']:,.2f}", is_bold=True), unsafe_allow_html=True)
+            r_cols[4].markdown(get_colored_text(diff, f"{diff:+,.2f}"), unsafe_allow_html=True)
+            r_cols[5].markdown(get_colored_text(diff, f"{row['漲幅%']:+,.2f}%"), unsafe_allow_html=True)
+            r_cols[6].markdown(f"{row['K']:.2f}")
+            r_cols[7].markdown(f"{row['D']:.2f}")
+            st.write('<div style="margin:-5px 0;"></div>', unsafe_allow_html=True) # 微調縮小行距
+    else:
+        st.info("💡 目前庫存股為空。")
 
-# === 右側：新聞直播 ===
+# === 右側：電視新聞直播 ===
 with top_col2:
     st.subheader("📺 財經新聞直播設定")
     video_id = st.text_input("請輸入最新 YouTube 直播 ID (11碼):", value="1I2iq41Akmo", key="yt_video_id")
     st.video(f"https://www.youtube.com/watch?v={video_id}")
 
-# === 下半部：自選明細 ===
+
+# === 下半部：💼 自選明細完整儀表板 (原生排版) ===
 st.divider()
 with st.container():
     st.subheader("💼 自選明細完整儀表板")
-    if not df_all.empty and "代號_raw" in df_all.columns:
-        df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].reset_index(drop=True)
-        if not df_watchlist.empty:
-            html_table_w = render_styled_table(df_watchlist, "w")
-            st.markdown(html_table_w, unsafe_allow_html=True)
-        else: st.info("💡 目前自選股為空。")
-    else: st.info("💡 目前沒有資料。")
+    
+    df_watchlist = df_all[df_all["代號"].isin(final_watchlist_list)].copy()
+    
+    if not df_watchlist.empty:
+        # 表頭配置
+        w_cols = st.columns([0.5, 1.0, 1.5, 1.0, 1.0, 1.0, 0.8, 0.8, 1.0, 1.0, 1.0, 1.2, 2.5])
+        w_cols[0].markdown("**操作**")
+        w_cols[1].markdown("**代號**")
+        w_cols[2].markdown("**名稱**")
+        w_cols[3].markdown("**價格**")
+        w_cols[4].markdown("**漲跌**")
+        w_cols[5].markdown("**漲幅%**")
+        w_cols[6].markdown("**K**")
+        w_cols[7].markdown("**D**")
+        w_cols[8].markdown("**MA5**")
+        w_cols[9].markdown("**MA10**")
+        w_cols[10].markdown("**MA20**")
+        w_cols[11].markdown("**均線狀態**")
+        w_cols[12].markdown("**訊號**")
+        st.divider()
+        
+        for idx, row in df_watchlist.iterrows():
+            sid = row["代號"]
+            diff = row["漲跌"]
+            price = row["價格"]
+            
+            id_html, name_html = make_html_link(sid, row["名稱"], str(sid).startswith("00"))
+            if sid == "^TWII":
+                name_html = "加權指數"
+            
+            r_cols = st.columns([0.5, 1.0, 1.5, 1.0, 1.0, 1.0, 0.8, 0.8, 1.0, 1.0, 1.0, 1.2, 2.5])
+            
+            # 💡 核心刪除自選：原生按鈕點擊，秒殺下架
+            if r_cols[0].button("❌", key=f"del_w_{sid}", help=f"刪除 {sid}", use_container_width=True):
+                st.session_state.stored_watchlist.remove(sid)
+                st.rerun()
+                
+            r_cols[1].markdown(id_html, unsafe_allow_html=True)
+            r_cols[2].markdown(name_html, unsafe_allow_html=True)
+            r_cols[3].markdown(get_colored_text(diff, f"{price:,.2f}", is_bold=True), unsafe_allow_html=True)
+            r_cols[4].markdown(get_colored_text(diff, f"{diff:+,.2f}"), unsafe_allow_html=True)
+            r_cols[5].markdown(get_colored_text(diff, f"{row['漲幅%']:+,.2f}%"), unsafe_allow_html=True)
+            r_cols[6].markdown(f"{row['K']:.2f}")
+            r_cols[7].markdown(f"{row['D']:.2f}")
+            
+            # 均線顏色標記
+            r_cols[8].markdown(get_ma_color_text(row["MA5"], price), unsafe_allow_html=True)
+            r_cols[9].markdown(get_ma_color_text(row["MA10"], price), unsafe_allow_html=True)
+            r_cols[10].markdown(get_ma_color_text(row["MA20"], price), unsafe_allow_html=True)
+            
+            r_cols[11].markdown(f"{row['均線狀態']}")
+            r_cols[12].markdown(f"{row['訊號']}")
+            st.write('<div style="margin:-5px 0;"></div>', unsafe_allow_html=True)
+    else:
+        st.info("💡 目前自選股為空。")
 
 # ===== 5. 自動循環刷新 =====
 time.sleep(30)

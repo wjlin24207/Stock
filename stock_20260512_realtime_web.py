@@ -153,33 +153,36 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return None
 
 
-# ==================== 2. 側邊欄：動態股票自選設定 ====================
-st.sidebar.header("🛠️ 自選股清單設定")
+# ==================== 2. 側邊欄：獨立控制區 ====================
+st.sidebar.header("🛠️ 監控清單獨立設定")
 
-# 預設的基本庫存/追蹤清單
-default_stocks = ["^TWII", "0056", "00878", "00919", "0050", "2330", "3711"]
+# --- 2A. 庫存股設定 ---
+st.sidebar.subheader("📌 庫存個股管理")
+default_portfolio = ["0056", "00878", "00919", "0050"]
+selected_portfolio = st.sidebar.multiselect("選擇基本庫存：", options=default_portfolio, default=default_portfolio)
+custom_portfolio_input = st.sidebar.text_input("✍️ 手動加庫存（代號用逗號隔開）：", value="2330, 3711")
 
-# 讓使用者可以從預設選單中勾選，也可以手動增加
-selected_stocks = st.sidebar.multiselect(
-    "選擇要監控的基本股票：",
-    options=default_stocks,
-    default=default_stocks
-)
+portfolio_custom = [s.strip() for s in custom_portfolio_input.replace("，", ",").split(",") if s.strip()]
+final_portfolio_list = list(dict.fromkeys(selected_portfolio + portfolio_custom))
 
-# 新增任意股票的輸入框（多檔股票用逗號隔開，例如：2454, 2317）
-custom_stocks_input = st.sidebar.text_input("✍️ 手動新增任意股票代號（多檔請用逗號隔開）:", value="")
+st.sidebar.markdown("---")
 
-# 解析手動輸入的股票
-custom_stocks = []
-if custom_stocks_input:
-    custom_stocks = [s.strip() for s in custom_stocks_input.replace("，", ",").split(",") if s.strip()]
+# --- 2B. 自選明細設定 ---
+st.sidebar.subheader("💼 自選明細管理")
+# 預設自選可以包含大盤或其他你想獨立觀察的股票
+default_watchlist = ["^TWII", "0050"] 
+selected_watchlist = st.sidebar.multiselect("選擇基本自選：", options=default_watchlist, default=default_watchlist)
+custom_watchlist_input = st.sidebar.text_input("✍️ 手動加自選（代號用逗號隔開）：", value="2454, 2317")
 
-# 最終合併後的股票清單（移除重複項並保持順序）
-target_stocks = list(dict.fromkeys(selected_stocks + custom_stocks))
+watchlist_custom = [s.strip() for s in custom_watchlist_input.replace("，", ",").split(",") if s.strip()]
+final_watchlist_list = list(dict.fromkeys(selected_watchlist + watchlist_custom))
 
 
-# ===== 3. 資料準備與計算 =====
-# 頂部控制列（更新時間與手動刷新按鈕並排）
+# === 合併總清單（讓後台一次抓完所有資料，避免重複請求） ===
+target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))
+
+
+# ==================== 3. 資料準備與計算 ====================
 time_col1, time_col2 = st.columns([8, 2])
 with time_col1:
     taiwan_time = datetime.utcnow() + timedelta(hours=8)
@@ -189,7 +192,7 @@ with time_col2:
         st.rerun()
 
 if not target_stocks:
-    st.warning("⚠️ 請在左側側邊欄選擇或輸入至少一檔股票代號。")
+    st.warning("⚠️ 請在左側側邊欄設定至少一檔庫存股或自選股。")
     time.sleep(5)
     st.rerun()
 
@@ -214,46 +217,34 @@ for sid in target_stocks:
             rows.append(result)
 
 if not rows:
-    st.error("❌ 抓不到任何股票資料，請檢查網路或代號是否正確。")
+    st.error("❌ 抓不到任何股票資料，請檢查網路或代號。")
     time.sleep(5)
     st.rerun()
 
-df = pd.DataFrame(rows)
+# 建立大總表 DataFrame
+df_all = pd.DataFrame(rows)
+df_all = df_all.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
+df_all["代號_raw"] = df_all["代號/K線"]
 
-df = df.rename(columns={
-    "代號": "代號/K線",
-    "名稱": "名稱/成份股"
-})
-
-
-# 建立超連結處理
-df["代號_raw"] = df["代號/K線"]
-
+# 轉換超連結
 def make_id_link(row):
     sid = row["代號_raw"]
-    if sid == "^TWII":
-        url = "https://tw.stock.yahoo.com/tw-market"
-    else:
-        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+    url = "https://tw.stock.yahoo.com/tw-market" if sid == "^TWII" else f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
     return f'<a href="{url}" target="_blank">{sid}</a>'
 
 def make_name_link(row):
-    sid = row["代號_raw"]  # 修正原本的 typo "代跑_raw"
+    sid = row["代號_raw"]
     name = row["名稱/成份股"]
-    url = None
-    if str(sid).startswith("00"):
-        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
-    if url:
-        return f'<a href="{url}" target="_blank">{name}</a>'
-    return name
+    url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW" if str(sid).startswith("00") else None
+    return f'<a href="{url}" target="_blank">{name}</a>' if url else name
 
-df["名稱/成份股"] = df.apply(make_name_link, axis=1)
-df["代號/K線"] = df.apply(make_id_link, axis=1)
+df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
+df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
 
 
-# ==================== 4. 畫面排版渲染 ====================
+# ==================== 4. 畫面排版與分流渲染 ====================
 
-# 定義全域表格 CSS 樣式
+# CSS 樣式
 st.markdown("""
 <style>
 table { width: 100% !important; table-layout: auto; }
@@ -262,95 +253,80 @@ div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
 </style>
 """, unsafe_allow_html=True)
 
-# 統一樣式美化設定
-styled = df.style.format({
-    "價格": "{:,.2f}",
-    "漲跌": "{:+,.2f}",
-    "漲幅%": "{:+,.2f}%",
-    "K": "{:.2f}",
-    "D": "{:.2f}",
-    "MA5": "{:.2f}",
-    "MA10": "{:.2f}",
-    "MA20": "{:.2f}"
-})
-
+# 顏色定義函式
 def color(val):
     return "color:red" if val > 0 else "color:green" if val < 0 else ""
-styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-def apply_price(row):
-    diff = df.loc[row.name, "漲跌"]
+def apply_price_color(df_src, row):
+    diff = df_src.loc[row.name, "漲跌"]
     return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
-styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
 def color_ma(val, price):
     return "color:red" if val < price else "color:green" if val > price else ""
 
-def apply_ma(row):
-    price = df.loc[row.name, "價格"]
-    return [
-        color_ma(row["MA5"], price),
-        color_ma(row["MA10"], price),
-        color_ma(row["MA20"], price)
-    ]
-styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
+def apply_ma_color(df_src, row):
+    price = df_src.loc[row.name, "價格"]
+    return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
+
 
 # ------------------ 畫面上半部：左右分欄 ------------------
 top_col1, top_col2 = st.columns([6, 4])
 
-# === 左側：庫存股監控 (簡化版) ===
+# === 左側：【獨立】庫存股監控 (簡化版) ===
 with top_col1:
     st.subheader("📌 庫存股監控")
-    # 排除大盤，複製一份庫存股資料
-    df_watchlist = df[df["代號_raw"].str.contains(r"\^TWII") == False].copy()
     
-    if not df_watchlist.empty:
-        # 移除庫存股不需要的欄位
+    # 🔍 核心改動：只撈出屬於 final_portfolio_list 的股票
+    df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].copy()
+    
+    if not df_portfolio.empty:
+        # 移除庫存股表格不需要的技術指標欄位
         drop_cols = ["MA5", "MA10", "MA20", "均線狀態", "訊號"]
-        existing_drop_cols = [c for c in drop_cols if c in df_watchlist.columns]
-        df_watchlist = df_watchlist.drop(columns=existing_drop_cols).drop(columns=["代號_raw"])
+        existing_drop_cols = [c for c in drop_cols if c in df_portfolio.columns]
+        df_portfolio_display = df_portfolio.drop(columns=existing_drop_cols).drop(columns=["代號_raw"])
         
-        # 重新建立簡化版表格的樣式
-        watch_styled = df_watchlist.style.format({
+        # 建立獨立樣式
+        port_styled = df_portfolio_display.style.format({
            "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}"
         }).map(color, subset=["漲跌", "漲幅%"])
-        watch_styled = watch_styled.apply(apply_price, subset=["價格"], axis=1)
+        port_styled = port_styled.apply(lambda r: apply_price_color(df_portfolio_display, r), subset=["價格"], axis=1)
         
-        st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
+        st.markdown(port_styled.to_html(escape=False), unsafe_allow_html=True)
     else:
-        st.info("目前沒有追蹤個股（僅有大盤）。")
+        st.info("💡 目前沒有設定任何庫存股。")
 
 # === 右側：東森財經新聞直播 ===
 with top_col2:
     st.subheader("📺 財經新聞直播設定")
-    video_id = st.text_input(
-        "請輸入最新 YouTube 直播 ID (11碼):",
-        value="1I2iq41Akmo",
-        key="yt_video_id"
-    )
-    live_url = f"https://www.youtube.com/watch?v={video_id}"
-    st.video(live_url)
+    video_id = st.text_input("請輸入最新 YouTube 直播 ID (11碼):", value="1I2iq41Akmo", key="yt_video_id")
+    st.video(f"https://www.youtube.com/watch?v={video_id}")
 
-# ------------------ 畫面下半部：全寬獨占 (自選明細) ------------------
+
+# ------------------ 畫面下半部：全寬獨占 ------------------
 st.divider()
 col_bottom = st.container()
 
 with col_bottom:
     st.subheader("💼 自選明細完整儀表板")
-    st.info("💡 這裡顯示您在左側選擇與輸入的所有股票完整技術指標。")
     
-    # 移除暫時的輔助欄位後輸出完整的樣式表
-    df_final = df.drop(columns=["代號_raw"])
-    final_styled = df_final.style.format({
-        "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%",
-        "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"
-    }).map(color, subset=["漲跌", "漲幅%"])
+    # 🔍 核心改動：只撈出屬於 final_watchlist_list 的股票
+    df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].copy()
     
-    # 重新對完整的 df_final 套用價格與均線顏色
-    final_styled = final_styled.apply(apply_price, subset=["價格"], axis=1)
-    final_styled = final_styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
-    
-    st.markdown(final_styled.to_html(escape=False), unsafe_allow_html=True)
+    if not df_watchlist.empty:
+        df_watchlist_display = df_watchlist.drop(columns=["代號_raw"])
+        
+        # 建立獨立樣式（包含完整均線指標）
+        watch_styled = df_watchlist_display.style.format({
+            "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%",
+            "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"
+        }).map(color, subset=["漲跌", "漲幅%"])
+        
+        watch_styled = watch_styled.apply(lambda r: apply_price_color(df_watchlist_display, r), subset=["價格"], axis=1)
+        watch_styled = watch_styled.apply(lambda r: apply_ma_color(df_watchlist_display, r), subset=["MA5", "MA10", "MA20"], axis=1)
+        
+        st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
+    else:
+        st.info("💡 目前沒有設定任何自選股。")
 
 # ===== 5. 自動循環刷新 =====
 time.sleep(30)

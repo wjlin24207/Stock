@@ -5,38 +5,20 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
-import streamlit.components.v1 as components
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（直覺點擊刪除版）")
+st.title("📊 策略監控儀表板（點擊 ❌ 刪除終極版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 初始化基礎股票清單（改用獨立儲存陣列，避免與 UI 元件鎖定）
+# 初始化資料庫陣列
 if "stored_portfolio" not in st.session_state:
     st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "stored_watchlist" not in st.session_state:
     st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
-
-# 💡 【核心功能】：偵測網頁表格上的 ❌ 是否被點擊
-query_params = st.query_params
-if "del_p" in query_params:  # 刪除庫存股
-    to_del = query_params["del_p"]
-    if to_del in st.session_state.stored_portfolio:
-        st.session_state.stored_portfolio.remove(to_del)
-    st.query_params.clear()  # 清除網址參數
-    st.rerun()
-
-if "del_w" in query_params:  # 刪除自選股
-    to_del = query_params["del_w"]
-    if to_del in st.session_state.stored_watchlist:
-        st.session_state.stored_watchlist.remove(to_del)
-    st.query_params.clear()
-    st.rerun()
-
 
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
@@ -113,7 +95,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
     except: return None
 
 
-# ==================== 2. 側邊欄：依據要求簡化，只保留選擇與新增 ====================
+# ==================== 2. 側邊欄控制台（動態偵測刪除） ====================
 st.sidebar.header("🛠️ 監控清單控制台")
 
 mode = st.sidebar.selectbox(
@@ -121,6 +103,24 @@ mode = st.sidebar.selectbox(
     options=["📌 庫存個股管理", "💼 自選明細管理"]
 )
 st.sidebar.markdown("---")
+
+# 💡 核心刪除回呼機制：當點擊 ❌ 時，會驅動這兩個文字框，一有變動立刻執行刪除並 rerun！
+def handle_invisible_del_p():
+    val = st.session_state.get("hidden_del_p", "")
+    if val in st.session_state.stored_portfolio:
+        st.session_state.stored_portfolio.remove(val)
+    st.session_state.hidden_del_p = ""
+
+def handle_invisible_del_w():
+    val = st.session_state.get("hidden_del_w", "")
+    if val in st.session_state.stored_watchlist:
+        st.session_state.stored_watchlist.remove(val)
+    st.session_state.hidden_del_w = ""
+
+# 隱藏在底層的安全下架接收器
+st.sidebar.text_input("隱藏下架P", key="hidden_del_p", on_change=handle_invisible_del_p, label_visibility="collapsed")
+st.sidebar.text_input("隱藏下架W", key="hidden_del_w", on_change=handle_invisible_del_w, label_visibility="collapsed")
+
 
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
@@ -134,7 +134,7 @@ def do_add_watchlist():
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
         st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
 
-# 側邊欄僅呈現目前清單與新增欄位，刪除功能由右側表格的 ❌ 獨佔！
+
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
     st.sidebar.info(f"當前庫存：\n{', '.join(st.session_state.stored_portfolio)}")
@@ -193,15 +193,14 @@ if not df_all.empty:
     df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
     df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
 
-# ==================== 4. 畫面排版與【❌ 點擊刪除渲染】 ====================
-# 💡 CSS 全域設定：將原生的序號欄隱藏，並美化 ❌ 按鈕樣式
+# ==================== 4. 畫面排版與表格美化 ====================
 st.markdown("""
 <style>
 table { width: 100% !important; table-layout: auto; }
 td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; text-align: center !important; }
 div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
-.del-btn { color: #ff4b4b; cursor: pointer; text-decoration: none; font-weight: bold; font-size: 16px; }
-.del-btn:hover { color: #ff1a1a; scale: 1.2; }
+.del-icon { color: #ff4b4b; font-weight: bold; font-size: 16px; text-decoration: none; cursor: pointer; }
+.del-icon:hover { color: #ff0000; font-size: 18px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -215,37 +214,28 @@ def apply_ma_color(df_src, row):
     return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
 
 
-# 💡 【核心渲染邏輯】：將原本的 1 2 3 4 序號欄改寫為 ❌ 超連結按鈕
-def render_html_table_with_delete(df_src, final_list, type_flag):
-    if df_src.empty:
-        return "<tr><td colspan='100%'>💡 目前沒有資料</td></tr>"
+# 💡 【核心重構渲染函數】：不改寫索引，直接手動建立一個名為「操作」的全新欄位，保證 100% 成功
+def render_styled_table(df_src, type_flag):
+    if df_src.empty: return "💡 目前沒有資料"
     
-    # 複製並格式化
     df_disp = df_src.copy()
-    styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"})
+    
+    # 建立內嵌 JavaScript 的 ❌ 按鈕，點擊時會直接去填寫左邊側邊欄隱藏的 text_input，藉此觸發 Python 的刪除機制！
+    if type_flag == "p":
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f'<a class="del-icon" onclick="window.parent.document.querySelector(\'input[aria-label=\\\'隱藏下架P\\']\').value=\'{x}\'; window.parent.document.querySelector(\'input[aria-label=\\\'隱藏下架P\\']\').dispatchEvent(new Event(\\'change\\', {{bubbles:true}}));">❌</a>'))
+    else:
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f'<a class="del-icon" onclick="window.parent.document.querySelector(\'input[aria-label=\\\'隱藏下架W\\']\').value=\'{x}\'; window.parent.document.querySelector(\'input[aria-label=\\\'隱藏下架W\\']\').dispatchEvent(new Event(\\'change\\', {{bubbles:true}}));">❌</a>'))
+        
+    df_disp = df_disp.drop(columns=["代號_raw"])
+    
+    # 套用樣式
+    styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"}).hide(axis="index") # 💡 直接隱藏原本討厭的 0 1 2 3 序號欄！
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
     styled = styled.apply(lambda r: apply_price_color(df_disp, r), subset=["價格"], axis=1)
     if "MA5" in df_disp.columns:
         styled = styled.apply(lambda r: apply_ma_color(df_disp, r), subset=["MA5", "MA10", "MA20"], axis=1)
-    
-    # 轉換成標準 HTML
-    raw_html = styled.to_html(escape=False)
-    
-    # 用 BeautifulSoup 或字串替換，將原本左側的 index 序號 `<td>0</td>` 取代為 `❌`
-    import re
-    # 找出所有的索引欄位並替換為 ❌ 連結，點選時會觸發網頁帶入 query 參數
-    rows = re.findall(r'<tr>\s*<th[^>]*>.*?</th>', raw_html)
-    for idx, row_string in enumerate(rows):
-        if idx < len(df_disp):
-            raw_sid = df_disp.iloc[idx]["代號_raw"]
-            # 💡 當點擊 ❌ 時，會對 parent 視窗發送帶有該股代號的超連結，完成無痛刪除！
-            del_html = f'<tr><td style="text-align:center;"><a class="del-btn" href="?del_{type_flag}={raw_sid}" target="_parent">❌</a></td>'
-            raw_html = raw_html.replace(row_string, del_html)
-            
-    # 把表格頂部的空白 corner 欄位改成「刪除」字樣
-    raw_html = re.sub(r'<th class="blank[^>]*></th>', '<th style="text-align:center;font-weight:bold;color:#ff4b4b;">操作</th>', raw_html)
-    raw_html = re.sub(r'<th class="index_name[^>]*>.*?</th>', '<th style="text-align:center;font-weight:bold;color:#ff4b4b;">操作</th>', raw_html)
-    return raw_html
+        
+    return styled.to_html(escape=False)
 
 
 top_col1, top_col2 = st.columns([6, 4])
@@ -257,9 +247,9 @@ with top_col1:
         df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].reset_index(drop=True)
         if not df_portfolio.empty:
             df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號"])
-            html_table = render_html_table_with_delete(df_portfolio_display, final_portfolio_list, "p")
+            html_table = render_styled_table(df_portfolio_display, "p")
             st.markdown(html_table, unsafe_allow_html=True)
-        else: st.info("💡 目前沒有設定任何庫存股。")
+        else: st.info("💡 目前庫存股為空。")
     else: st.info("💡 目前沒有資料。")
 
 # === 右側：新聞直播 ===
@@ -275,9 +265,9 @@ with st.container():
     if not df_all.empty and "代號_raw" in df_all.columns:
         df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].reset_index(drop=True)
         if not df_watchlist.empty:
-            html_table_w = render_html_table_with_delete(df_watchlist, final_watchlist_list, "w")
+            html_table_w = render_styled_table(df_watchlist, "w")
             st.markdown(html_table_w, unsafe_allow_html=True)
-        else: st.info("💡 目前沒有設定任何自選股。")
+        else: st.info("💡 目前自選股為空。")
     else: st.info("💡 目前沒有資料。")
 
 # ===== 5. 自動循環刷新 =====

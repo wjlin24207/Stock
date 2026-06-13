@@ -9,12 +9,12 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（專業升級版）")
+st.title("📊 策略監控儀表板（動態控制台版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 初始化 session_state，做為選單的唯一真實資料源
+# 初始化 session_state，做為唯一真實資料源
 if "portfolio_ms" not in st.session_state:
     st.session_state.portfolio_ms = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "watchlist_ms" not in st.session_state:
@@ -42,18 +42,15 @@ def get_all_live_prices(stock_list):
         return price_map
     except: return {}
 
-# 💡 安全抓取單檔歷史資料，避免一檔死全部死
 def get_single_yahoo_hist(sid):
     ticker = f"{sid}.TW" if not sid.startswith("^") else sid
     try:
         df = yf.download(ticker, period="6mo", interval="1d", progress=False, auto_adjust=True)
         if df.empty: return None
-        # 如果是多重索引欄位，轉為單層
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         return df
-    except:
-        return None
+    except: return None
 
 def process_kd_logic(stock_id, live_info, hist_df):
     try:
@@ -70,8 +67,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
         庫存.iloc[-1, 庫存.columns.get_loc('close')] = live_price
         
         庫存['9h'], 庫存['9l'] = 庫存['high'].rolling(9).max(), 庫存['low'].rolling(9).min()
-        
-        # 修正原本的錯字
         庫存['rsv'] = 100 * (庫存['close'] - 庫存['9l']) / (庫存['9h'] - 庫存['9l'] + 1e-9)
         庫存['rsv'] = 庫存['rsv'].fillna(50)
         
@@ -99,8 +94,16 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return {"代號": stock_id, "名稱": name, "價格": round(live_price, 2), "漲跌": round(diff, 2), "漲幅%": round(percent, 2), "K": round(k, 2), "D": round(d, 2), "MA5": round(ma5_t, 2), "MA10": round(ma10_t, 2), "MA20": round(ma20_t, 2), "均線狀態": ma_status, "訊號": " | ".join(signal)}
     except: return None
 
-# ==================== 2. 側邊欄：獨立控制區 ====================
-st.sidebar.header("🛠️ 監控清單獨立設定")
+# ==================== 2. 側邊欄：動態切換控制台 ====================
+st.sidebar.header("🛠️ 監控清單控制台")
+
+# 💡 核心改動：主要的切換下拉方塊
+mode = st.sidebar.selectbox(
+    "請選擇要管理的清單：",
+    options=["📌 庫存個股管理", "💼 自選明細管理"]
+)
+
+st.sidebar.markdown("---")
 
 def logic_add_stock(input_str, target_key):
     val = input_str.replace("，", ",").strip()
@@ -108,47 +111,46 @@ def logic_add_stock(input_str, target_key):
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
         st.session_state[target_key] = list(dict.fromkeys(st.session_state[target_key] + new_stocks))
 
-# --- 2A. 庫存股管理 ---
-st.sidebar.subheader("📌 庫存個股管理")
-final_portfolio_list = st.sidebar.multiselect(
-    "目前庫存清單（可點 X 刪除）：", 
-    options=st.session_state.portfolio_ms, 
-    key="portfolio_ms"
-)
+# 根據下拉選單的選擇，動態渲染對應的管理介面
+if mode == "📌 庫存個股管理":
+    st.sidebar.subheader("📌 庫存個股配置")
+    final_portfolio_list = st.sidebar.multiselect(
+        "目前庫存（可點 X 刪除）：", 
+        options=st.session_state.portfolio_ms, 
+        key="portfolio_ms"
+    )
+    final_watchlist_list = st.session_state.watchlist_ms # 自選保持原樣不變
+    
+    # 新增元件
+    p_col1, p_col2 = st.sidebar.columns([7, 3])
+    with p_col1:
+        p_input = st.text_input("輸入要加的庫存代號：", key="p_input_field", label_visibility="collapsed", placeholder="例如: 2317")
+    with p_col2:
+        if st.button("➕ 新增", key="p_btn", use_container_width=True): pass
+    if p_input:
+        logic_add_stock(p_input, "portfolio_ms")
+        st.rerun()
 
-p_col1, p_col2 = st.sidebar.columns([7, 3])
-with p_col1:
-    p_input = st.text_input("輸入庫存代號：", key="p_input_field", label_visibility="collapsed", placeholder="例如: 2317")
-with p_col2:
-    if st.button("➕ 新增", key="p_btn", use_container_width=True):
-        pass
+else: # 選擇了 "💼 自選明細管理"
+    st.sidebar.subheader("💼 自選明細配置")
+    final_watchlist_list = st.sidebar.multiselect(
+        "目前自選（可點 X 刪除）：", 
+        options=st.session_state.watchlist_ms, 
+        key="watchlist_ms"
+    )
+    final_portfolio_list = st.session_state.portfolio_ms # 庫存保持原樣不變
+    
+    # 新增元件
+    w_col1, w_col2 = st.sidebar.columns([7, 3])
+    with w_col1:
+        w_input = st.text_input("輸入要加的自選代號：", key="w_input_field", label_visibility="collapsed", placeholder="例如: 2454")
+    with w_col2:
+        if st.button("➕ 新增", key="w_btn", use_container_width=True): pass
+    if w_input:
+        logic_add_stock(w_input, "watchlist_ms")
+        st.rerun()
 
-if p_input:
-    logic_add_stock(p_input, "portfolio_ms")
-    st.rerun()
-
-st.sidebar.markdown("---")
-
-# --- 2B. 自選明細管理 ---
-st.sidebar.subheader("💼 自選明細管理")
-final_watchlist_list = st.sidebar.multiselect(
-    "目前自選清單（可點 X 刪除）：", 
-    options=st.session_state.watchlist_ms, 
-    key="watchlist_ms"
-)
-
-w_col1, w_col2 = st.sidebar.columns([7, 3])
-with w_col1:
-    w_input = st.text_input("輸入自選代號：", key="w_input_field", label_visibility="collapsed", placeholder="例如: 2454")
-with p_col2: # 修正此處排版對齊按鈕
-    if st.button("➕ 新增", key="w_btn", use_container_width=True):
-        pass
-
-if w_input:
-    logic_add_stock(w_input, "watchlist_ms")
-    st.rerun()
-
-# === 合併總清單 ===
+# === 後台合併總清單 ===
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))
 
 # ==================== 3. 資料準備與計算 ====================
@@ -161,33 +163,26 @@ with time_col2:
         st.rerun()
 
 if not target_stocks:
-    st.warning("⚠️ 請在左側側邊欄設定至少一檔庫存股或自選股。")
+    st.warning("⚠️ 請在左側設定至少一檔股票。")
     time.sleep(2)
     st.rerun()
 
-# 抓取即時價格 (總體請求)
 prices = get_all_live_prices(target_stocks)
 
 rows = []
-failed_stocks = [] # 紀錄抓取失敗的股票
+failed_stocks = []
 
-# 💡 核心改動：改為逐檔安全抓取 Yahoo K 線歷史資料，不互相影響
 for sid in target_stocks:
     live = prices.get(sid)
     hist = get_single_yahoo_hist(sid)
-    
     if live and hist is not None and not hist.empty:
         result = process_kd_logic(sid, live, hist)
-        if result:
-            rows.append(result)
-        else:
-            failed_stocks.append(sid)
-    else:
-        failed_stocks.append(sid)
+        if result: rows.append(result)
+        else: failed_stocks.append(sid)
+    else: failed_stocks.append(sid)
 
-# 提示抓取失敗的特定股票，但不阻礙整體程式運行
 if failed_stocks:
-    st.warning(f"⚠️ 提示：無法從 Yahoo Finance 獲取以下代號的 K 線歷史資料: {', '.join(failed_stocks)} (可能代號不正確或無歷史數據)")
+    st.warning(f"⚠️ 無法獲取以下股票歷史資料: {', '.join(failed_stocks)}")
 
 df_all = pd.DataFrame(rows)
 if not df_all.empty:

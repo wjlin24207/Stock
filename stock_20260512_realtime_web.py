@@ -308,7 +308,7 @@ else:
     with col_bottom:
         st.subheader("💼 自選明細 (範例)")
         # 這裡可以放你的自選 DataFrame。目前先拿大盤「加權指數」當作下方的自選示範範例
-        df_inventory = df[df["代號/K線"].str.contains("TWII|00981A|00988A") == True]
+        df_inventory = df[df["代號/K線"].str.contains("TWII|00981A|00988A|2454") == True]
         
         if not df_inventory.empty:
             # 這裡簡單呈現大盤在下方，你也可以直接換成 st.dataframe(你的真實自選)

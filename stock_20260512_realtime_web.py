@@ -14,7 +14,7 @@ st.title("📊 策略監控儀表板（動態控制台版）")
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 💡 核心修正：將儲存陣列與 UI 選取陣列完全獨立分開，避開元件鎖定 Bug
+# 💡 初始化資料陣列（僅用來儲存資料，絕不與 UI 元件的 Key 衝突）
 if "stored_portfolio" not in st.session_state:
     st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
 if "stored_watchlist" not in st.session_state:
@@ -94,7 +94,8 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return {"代號": stock_id, "名稱": name, "價格": round(live_price, 2), "漲跌": round(diff, 2), "漲幅%": round(percent, 2), "K": round(k, 2), "D": round(d, 2), "MA5": round(ma5_t, 2), "MA10": round(ma10_t, 2), "MA20": round(ma20_t, 2), "均線狀態": ma_status, "訊號": " | ".join(signal)}
     except: return None
 
-# ==================== 2. 側邊欄：動態切換控制台 ====================
+
+# ==================== 2. 側邊欄：標準 Callback 新增機制 ====================
 st.sidebar.header("🛠️ 監控清單控制台")
 
 mode = st.sidebar.selectbox(
@@ -104,7 +105,20 @@ mode = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 
-# 根據目前在 UI 上勾選的狀態，即時同步更新後台儲存的陣列
+# 💡 透過標準 Callback 機制新增，完全繞過直接修改 session_state 的限制
+def do_add_portfolio():
+    val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
+    if val:
+        new_stocks = [s.strip() for s in val.split(",") if s.strip()]
+        st.session_state.stored_portfolio = list(dict.fromkeys(st.session_state.stored_portfolio + new_stocks))
+
+def do_add_watchlist():
+    val = st.session_state.get("w_input_field", "").replace("，", ",").strip()
+    if val:
+        new_stocks = [s.strip() for s in val.split(",") if s.strip()]
+        st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
+
+# 當使用者在 multiselect 點 X 刪除時同步後台資料
 def sync_portfolio():
     if "portfolio_ui_key" in st.session_state:
         st.session_state.stored_portfolio = st.session_state.portfolio_ui_key
@@ -113,11 +127,11 @@ def sync_watchlist():
     if "watchlist_ui_key" in st.session_state:
         st.session_state.stored_watchlist = st.session_state.watchlist_ui_key
 
-# 根據選擇動態渲染介面
+
+# 根據下拉選單動態渲染
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
     
-    # 💡 終極方案：不使用 default 參數，改將儲存的狀態直接塞入 options 且綁定獨立 key 呼叫 callback 函數同步
     final_portfolio_list = st.sidebar.multiselect(
         "目前庫存（可點 X 刪除）：", 
         options=st.session_state.stored_portfolio,
@@ -126,15 +140,9 @@ if mode == "📌 庫存個股管理":
     )
     final_watchlist_list = st.session_state.stored_watchlist
     
-    # 新增元件
-    p_input = st.sidebar.text_input("輸入要加的庫存代號（多檔請用逗號隔開）：", key="p_input_field", placeholder="例如: 2317,2303")
-    if st.sidebar.button("➕ 新增到庫存", key="p_btn", use_container_width=True) or p_input:
-        if p_input:
-            new_stocks = [s.strip() for s in p_input.replace("，", ",").split(",") if s.strip()]
-            st.session_state.stored_portfolio = list(dict.fromkeys(st.session_state.stored_portfolio + new_stocks))
-            # 💡 清空文字欄位，並透過 rerun 讓 multiselect 完全刷新
-            st.session_state.p_input_field = ""
-            st.rerun()
+    # 💡 綁定回呼函式，讓 Enter 和點擊按鈕共用同一個安全通道
+    st.sidebar.text_input("輸入要加的庫存代號：", key="p_input_field", placeholder="例如: 2317", on_change=do_add_portfolio)
+    st.sidebar.button("➕ 新增到庫存", key="p_btn", use_container_width=True, on_click=do_add_portfolio)
 
 else: # 💼 自選明細管理
     st.sidebar.subheader("💼 自選明細配置")
@@ -147,17 +155,12 @@ else: # 💼 自選明細管理
     )
     final_portfolio_list = st.session_state.stored_portfolio
     
-    # 新增元件
-    w_input = st.sidebar.text_input("輸入要加的自選代號（多檔請用逗號隔開）：", key="w_input_field", placeholder="例如: 2454,2881")
-    if st.sidebar.button("➕ 新增到自選", key="w_btn", use_container_width=True) or w_input:
-        if w_input:
-            new_stocks = [s.strip() for s in w_input.replace("，", ",").split(",") if s.strip()]
-            st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
-            # 💡 清空文字欄位，並透過 rerun 讓 multiselect 完全刷新
-            st.session_state.w_input_field = ""
-            st.rerun()
+    # 💡 綁定回呼函式，讓 Enter 和點擊按鈕共用同一個安全通道
+    st.sidebar.text_input("輸入要加的自選代號：", key="w_input_field", placeholder="例如: 2454", on_change=do_add_watchlist)
+    st.sidebar.button("➕ 新增到自選", key="w_btn", use_container_width=True, on_click=do_add_watchlist)
 
-# 確保就算切換模式，變數依然有拿到後台最新資料
+
+# 重新校正資料，確保取得後台最新異動
 final_portfolio_list = st.session_state.stored_portfolio
 final_watchlist_list = st.session_state.stored_watchlist
 

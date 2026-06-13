@@ -20,6 +20,22 @@ if "stored_portfolio" not in st.session_state:
 if "stored_watchlist" not in st.session_state:
     st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
 
+# 💡 【網址參數偵測機制】：100% 繞過沙盒隔離，點擊 ❌ 後網址帶參數進來，這裡立刻執行刪除並重整！
+query_params = st.query_params
+if "del_p" in query_params:
+    to_del = query_params["del_p"]
+    if to_del in st.session_state.stored_portfolio:
+        st.session_state.stored_portfolio.remove(to_del)
+    st.query_params.clear() # 清除網址上的殘留參數
+    st.rerun()
+
+if "del_w" in query_params:
+    to_del = query_params["del_w"]
+    if to_del in st.session_state.stored_watchlist:
+        st.session_state.stored_watchlist.remove(to_del)
+    st.query_params.clear() # 清除網址上的殘留參數
+    st.rerun()
+
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
     if not stock_list: return {}
@@ -95,7 +111,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
     except: return None
 
 
-# ==================== 2. 側邊欄控制台（動態偵測刪除） ====================
+# ==================== 2. 側邊欄控制台 ====================
 st.sidebar.header("🛠️ 監控清單控制台")
 
 mode = st.sidebar.selectbox(
@@ -103,24 +119,6 @@ mode = st.sidebar.selectbox(
     options=["📌 庫存個股管理", "💼 自選明細管理"]
 )
 st.sidebar.markdown("---")
-
-# 💡 核心刪除機制改回最穩定的文字框偵測，100% 避開元件鎖定與語法衝突
-def handle_invisible_del_p():
-    val = st.session_state.get("hidden_del_p", "")
-    if val in st.session_state.stored_portfolio:
-        st.session_state.stored_portfolio.remove(val)
-    st.session_state.hidden_del_p = ""
-
-def handle_invisible_del_w():
-    val = st.session_state.get("hidden_del_w", "")
-    if val in st.session_state.stored_watchlist:
-        st.session_state.stored_watchlist.remove(val)
-    st.session_state.hidden_del_w = ""
-
-# 隱藏在底層的安全接收器
-st.sidebar.text_input("隱藏下架P", key="hidden_del_p", on_change=handle_invisible_del_p, label_visibility="collapsed")
-st.sidebar.text_input("隱藏下架W", key="hidden_del_w", on_change=handle_invisible_del_w, label_visibility="collapsed")
-
 
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
@@ -133,7 +131,6 @@ def do_add_watchlist():
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
         st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
-
 
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
@@ -200,7 +197,7 @@ table { width: 100% !important; table-layout: auto; }
 td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; text-align: center !important; }
 div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
 .del-icon { color: #ff4b4b; font-weight: bold; font-size: 16px; text-decoration: none; cursor: pointer; }
-.del-icon:hover { color: #ff0000; font-size: 18px; }
+.del-icon:hover { color: #ff0000; font-size: 18px; scale: 1.2; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -214,21 +211,21 @@ def apply_ma_color(df_src, row):
     return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
 
 
-# 💡 【完美修正行】：不再使用複雜的 JavaScript 括號字串，改用最純粹乾淨的 HTML onclick，徹底消滅 SyntaxError
+# 💡 【核心修改】：移除所有會迷路的 JavaScript，改用純粹的 target="_parent" 超連結傳址，雲端 100% 生效！
 def render_styled_table(df_src, type_flag):
     if df_src.empty: return "💡 目前沒有資料"
     
     df_disp = df_src.copy()
     
-    # 簡化 HTML 字串，改用雙引號包裹單引號，確保 Python 絕對不會認錯括號
+    # 建立帶參數的標準超連結
     if type_flag == "p":
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\'隱藏下架P\']'); inp.value='{x}'; inp.dispatchEvent(new Event('change', {{bubbles:true}}));\">❌</a>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' href='?del_p={x}' target='_parent'>❌</a>"))
     else:
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\'隱藏下架W\']'); inp.value='{x}'; inp.dispatchEvent(new Event('change', {{bubbles:true}}));\">❌</a>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' href='?del_w={x}' target='_parent'>❌</a>"))
         
     df_disp = df_disp.drop(columns=["代號_raw"])
     
-    # 套用樣式並完全隱藏舊的 0 1 2 3 序號欄
+    # 渲染 Pandas Style 並完全隱藏原本討厭的 0 1 2 3 序號欄
     styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"}).hide(axis="index")
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
     styled = styled.apply(lambda r: apply_price_color(df_disp, r), subset=["價格"], axis=1)

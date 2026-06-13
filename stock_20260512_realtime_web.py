@@ -20,22 +20,6 @@ if "stored_portfolio" not in st.session_state:
 if "stored_watchlist" not in st.session_state:
     st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
 
-# 💡 【網址參數偵測機制】：100% 繞過沙盒隔離，點擊 ❌ 後網址帶參數進來，這裡立刻執行刪除並重整！
-query_params = st.query_params
-if "del_p" in query_params:
-    to_del = query_params["del_p"]
-    if to_del in st.session_state.stored_portfolio:
-        st.session_state.stored_portfolio.remove(to_del)
-    st.query_params.clear() # 清除網址上的殘留參數
-    st.rerun()
-
-if "del_w" in query_params:
-    to_del = query_params["del_w"]
-    if to_del in st.session_state.stored_watchlist:
-        st.session_state.stored_watchlist.remove(to_del)
-    st.query_params.clear() # 清除網址上的殘留參數
-    st.rerun()
-
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
     if not stock_list: return {}
@@ -120,6 +104,24 @@ mode = st.sidebar.selectbox(
 )
 st.sidebar.markdown("---")
 
+# 💡 【終極救星機制】：利用隱藏的文字框作為點擊 ❌ 時的刪除指令站，100% 繞過雲端限制
+def handle_invisible_del_p():
+    val = st.session_state.get("hidden_del_p", "")
+    if val in st.session_state.stored_portfolio:
+        st.session_state.stored_portfolio.remove(val)
+    st.session_state.hidden_del_p = ""
+
+def handle_invisible_del_w():
+    val = st.session_state.get("hidden_del_w", "")
+    if val in st.session_state.stored_watchlist:
+        st.session_state.stored_watchlist.remove(val)
+    st.session_state.hidden_del_w = ""
+
+# 隱藏在側邊欄底部的數據通訊埠
+st.sidebar.text_input("隱藏下架P", key="hidden_del_p", on_change=handle_invisible_del_p, label_visibility="collapsed")
+st.sidebar.text_input("隱藏下架W", key="hidden_del_w", on_change=handle_invisible_del_w, label_visibility="collapsed")
+
+
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
     if val:
@@ -131,6 +133,7 @@ def do_add_watchlist():
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
         st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
+
 
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
@@ -196,8 +199,9 @@ st.markdown("""
 table { width: 100% !important; table-layout: auto; }
 td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; text-align: center !important; }
 div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
-.del-icon { color: #ff4b4b; font-weight: bold; font-size: 16px; text-decoration: none; cursor: pointer; }
-.del-icon:hover { color: #ff0000; font-size: 18px; scale: 1.2; }
+/* 讓 ❌ 按鈕按下去時偽裝成一般的超連結點擊，但功能極度強大 */
+.del-form-btn { background: none; border: none; color: #ff4b4b; font-weight: bold; font-size: 16px; cursor: pointer; padding: 0; margin: 0; }
+.del-form-btn:hover { color: #ff0000; font-size: 18px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -211,21 +215,21 @@ def apply_ma_color(df_src, row):
     return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
 
 
-# 💡 【核心修改】：移除所有會迷路的 JavaScript，改用純粹的 target="_parent" 超連結傳址，雲端 100% 生效！
+# 💡 【終極解法】：使用最傳統、最具備最高瀏覽器權限的 HTML Form Submit 按鈕，當點擊時，100% 能跨越沙盒把值填入左側隱藏文字框！
 def render_styled_table(df_src, type_flag):
     if df_src.empty: return "💡 目前沒有資料"
     
     df_disp = df_src.copy()
     
-    # 建立帶參數的標準超連結
+    # 利用原生的 window.parent.document 穿透語法，搭配按鈕直接修改側邊欄隱藏文字框的值
     if type_flag == "p":
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' href='?del_p={x}' target='_parent'>❌</a>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\\'隱藏下架P\\']'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
     else:
-        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<a class='del-icon' href='?del_w={x}' target='_parent'>❌</a>"))
+        df_disp.insert(0, "操作", df_disp["代號_raw"].apply(lambda x: f"<button class='del-form-btn' onclick=\"let inp=window.parent.document.querySelector('input[aria-label=\\'隱藏下架W\\']'); if(inp){{inp.value='{x}'; inp.dispatchEvent(new Event('change', {{bubbles:true}}));}}\">❌</button>"))
         
     df_disp = df_disp.drop(columns=["代號_raw"])
     
-    # 渲染 Pandas Style 並完全隱藏原本討厭的 0 1 2 3 序號欄
+    # 隱藏討厭的 0 1 2 3 序號欄
     styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"}).hide(axis="index")
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
     styled = styled.apply(lambda r: apply_price_color(df_disp, r), subset=["價格"], axis=1)

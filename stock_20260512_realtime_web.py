@@ -5,20 +5,38 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
+import streamlit.components.v1 as components
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== 1. 頁面基本設定 ====================
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
-st.title("📊 策略監控儀表板（動態控制台版）")
+st.title("📊 策略監控儀表板（直覺點擊刪除版）")
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-# 💡 【核心重構】：直接將這兩個 key 當作 multiselect 的唯一狀態源，移除中介的 stored 變數，防死防誤刪！
-if "portfolio_ui_key" not in st.session_state:
-    st.session_state.portfolio_ui_key = ["0056", "00878", "00919", "0050", "2330", "3711"]
-if "watchlist_ui_key" not in st.session_state:
-    st.session_state.watchlist_ui_key = ["^TWII", "0050", "2454", "2317"]
+# 初始化基礎股票清單（改用獨立儲存陣列，避免與 UI 元件鎖定）
+if "stored_portfolio" not in st.session_state:
+    st.session_state.stored_portfolio = ["0056", "00878", "00919", "0050", "2330", "3711"]
+if "stored_watchlist" not in st.session_state:
+    st.session_state.stored_watchlist = ["^TWII", "0050", "2454", "2317"]
+
+# 💡 【核心功能】：偵測網頁表格上的 ❌ 是否被點擊
+query_params = st.query_params
+if "del_p" in query_params:  # 刪除庫存股
+    to_del = query_params["del_p"]
+    if to_del in st.session_state.stored_portfolio:
+        st.session_state.stored_portfolio.remove(to_del)
+    st.query_params.clear()  # 清除網址參數
+    st.rerun()
+
+if "del_w" in query_params:  # 刪除自選股
+    to_del = query_params["del_w"]
+    if to_del in st.session_state.stored_watchlist:
+        st.session_state.stored_watchlist.remove(to_del)
+    st.query_params.clear()
+    st.rerun()
+
 
 # ===== 股票資料抓取與 KD 計算函式 =====
 def get_all_live_prices(stock_list):
@@ -95,65 +113,42 @@ def process_kd_logic(stock_id, live_info, hist_df):
     except: return None
 
 
-# ==================== 2. 側邊欄：獨立 Callback 控制台 ====================
+# ==================== 2. 側邊欄：依據要求簡化，只保留選擇與新增 ====================
 st.sidebar.header("🛠️ 監控清單控制台")
 
 mode = st.sidebar.selectbox(
     "請選擇要管理的清單：",
     options=["📌 庫存個股管理", "💼 自選明細管理"]
 )
-
 st.sidebar.markdown("---")
 
-# 💡 乾淨安全的新增 Callback：只在確定按 Enter 或按鈕時，才動態把新代號塞進陣列裡
 def do_add_portfolio():
     val = st.session_state.get("p_input_field", "").replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.portfolio_ui_key = list(dict.fromkeys(st.session_state.portfolio_ui_key + new_stocks))
+        st.session_state.stored_portfolio = list(dict.fromkeys(st.session_state.stored_portfolio + new_stocks))
 
 def do_add_watchlist():
     val = st.session_state.get("w_input_field", "").replace("，", ",").strip()
     if val:
         new_stocks = [s.strip() for s in val.split(",") if s.strip()]
-        st.session_state.watchlist_ui_key = list(dict.fromkeys(st.session_state.watchlist_ui_key + new_stocks))
+        st.session_state.stored_watchlist = list(dict.fromkeys(st.session_state.stored_watchlist + new_stocks))
 
-
-# 根據下拉選單動態渲染
+# 側邊欄僅呈現目前清單與新增欄位，刪除功能由右側表格的 ❌ 獨佔！
 if mode == "📌 庫存個股管理":
     st.sidebar.subheader("📌 庫存個股配置")
-    
-    # 💡 移除 `default` 參數與 `on_change` 同步回呼，直接用單一 key 深度綁定 options！這樣點選 X 就只會精準移除該股，絕不全刪
-    final_portfolio_list = st.sidebar.multiselect(
-        "目前庫存（可點 X 刪除）：", 
-        options=st.session_state.portfolio_ui_key,
-        key="portfolio_ui_key"
-    )
-    final_watchlist_list = st.session_state.watchlist_ui_key
-
+    st.sidebar.info(f"當前庫存：\n{', '.join(st.session_state.stored_portfolio)}")
     st.sidebar.text_input("輸入要加的庫存代號：", key="p_input_field", placeholder="例如: 2317", on_change=do_add_portfolio)
     st.sidebar.button("➕ 新增到庫存", key="p_btn", use_container_width=True, on_click=do_add_portfolio)
-
-else: # 💼 自選明細管理
+else:
     st.sidebar.subheader("💼 自選明細配置")
-    
-    # 💡 移除 `default` 參數與 `on_change` 同步回呼，直接用單一 key 深度綁定 options！
-    final_watchlist_list = st.sidebar.multiselect(
-        "目前自選（可點 X 刪除）：", 
-        options=st.session_state.watchlist_ui_key,
-        key="watchlist_ui_key"
-    )
-    final_portfolio_list = st.session_state.portfolio_ui_key
-    
+    st.sidebar.info(f"當前自選：\n{', '.join(st.session_state.stored_watchlist)}")
     st.sidebar.text_input("輸入要加的自選代號：", key="w_input_field", placeholder="例如: 2454", on_change=do_add_watchlist)
     st.sidebar.button("➕ 新增到自選", key="w_btn", use_container_width=True, on_click=do_add_watchlist)
 
 
-# 重新撈取最新的全域股票名單
-final_portfolio_list = st.session_state.portfolio_ui_key
-final_watchlist_list = st.session_state.watchlist_ui_key
-
-# === 後台合併總清單 ===
+final_portfolio_list = st.session_state.stored_portfolio
+final_watchlist_list = st.session_state.stored_watchlist
 target_stocks = list(dict.fromkeys(final_portfolio_list + final_watchlist_list))
 
 # ==================== 3. 資料準備與計算 ====================
@@ -171,21 +166,13 @@ if not target_stocks:
     st.rerun()
 
 prices = get_all_live_prices(target_stocks)
-
 rows = []
-failed_stocks = []
-
 for sid in target_stocks:
     live = prices.get(sid)
     hist = get_single_yahoo_hist(sid)
     if live and hist is not None and not hist.empty:
         result = process_kd_logic(sid, live, hist)
         if result: rows.append(result)
-        else: failed_stocks.append(sid)
-    else: failed_stocks.append(sid)
-
-if failed_stocks:
-    st.warning(f"⚠️ 無法獲取以下股票歷史資料: {', '.join(failed_stocks)}")
 
 df_all = pd.DataFrame(rows)
 if not df_all.empty:
@@ -206,8 +193,17 @@ if not df_all.empty:
     df_all["名稱/成份股"] = df_all.apply(make_name_link, axis=1)
     df_all["代號/K線"] = df_all.apply(make_id_link, axis=1)
 
-# ==================== 4. 畫面排版與分流渲染 ====================
-st.markdown("<style>table { width: 100% !important; table-layout: auto; } td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; } div[data-testid='stMarkdownContainer'] { overflow-x: auto; }</style>", unsafe_allow_html=True)
+# ==================== 4. 畫面排版與【❌ 點擊刪除渲染】 ====================
+# 💡 CSS 全域設定：將原生的序號欄隱藏，並美化 ❌ 按鈕樣式
+st.markdown("""
+<style>
+table { width: 100% !important; table-layout: auto; }
+td, th { white-space: nowrap; font-size: 14px; padding: 6px 10px !important; text-align: center !important; }
+div[data-testid='stMarkdownContainer'] { overflow-x: auto; }
+.del-btn { color: #ff4b4b; cursor: pointer; text-decoration: none; font-weight: bold; font-size: 16px; }
+.del-btn:hover { color: #ff1a1a; scale: 1.2; }
+</style>
+""", unsafe_allow_html=True)
 
 def color(val): return "color:red" if val > 0 else "color:green" if val < 0 else ""
 def apply_price_color(df_src, row):
@@ -218,18 +214,51 @@ def apply_ma_color(df_src, row):
     price = df_src.loc[row.name, "價格"]
     return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
 
+
+# 💡 【核心渲染邏輯】：將原本的 1 2 3 4 序號欄改寫為 ❌ 超連結按鈕
+def render_html_table_with_delete(df_src, final_list, type_flag):
+    if df_src.empty:
+        return "<tr><td colspan='100%'>💡 目前沒有資料</td></tr>"
+    
+    # 複製並格式化
+    df_disp = df_src.copy()
+    styled = df_disp.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}" if "MA5" in df_disp.columns else "{:.2f}"})
+    styled = styled.map(color, subset=["漲跌", "漲幅%"])
+    styled = styled.apply(lambda r: apply_price_color(df_disp, r), subset=["價格"], axis=1)
+    if "MA5" in df_disp.columns:
+        styled = styled.apply(lambda r: apply_ma_color(df_disp, r), subset=["MA5", "MA10", "MA20"], axis=1)
+    
+    # 轉換成標準 HTML
+    raw_html = styled.to_html(escape=False)
+    
+    # 用 BeautifulSoup 或字串替換，將原本左側的 index 序號 `<td>0</td>` 取代為 `❌`
+    import re
+    # 找出所有的索引欄位並替換為 ❌ 連結，點選時會觸發網頁帶入 query 參數
+    rows = re.findall(r'<tr>\s*<th[^>]*>.*?</th>', raw_html)
+    for idx, row_string in enumerate(rows):
+        if idx < len(df_disp):
+            raw_sid = df_disp.iloc[idx]["代號_raw"]
+            # 💡 當點擊 ❌ 時，會對 parent 視窗發送帶有該股代號的超連結，完成無痛刪除！
+            del_html = f'<tr><td style="text-align:center;"><a class="del-btn" href="?del_{type_flag}={raw_sid}" target="_parent">❌</a></td>'
+            raw_html = raw_html.replace(row_string, del_html)
+            
+    # 把表格頂部的空白 corner 欄位改成「刪除」字樣
+    raw_html = re.sub(r'<th class="blank[^>]*></th>', '<th style="text-align:center;font-weight:bold;color:#ff4b4b;">操作</th>', raw_html)
+    raw_html = re.sub(r'<th class="index_name[^>]*>.*?</th>', '<th style="text-align:center;font-weight:bold;color:#ff4b4b;">操作</th>', raw_html)
+    return raw_html
+
+
 top_col1, top_col2 = st.columns([6, 4])
 
 # === 左側：庫存股監控 ===
 with top_col1:
     st.subheader("📌 庫存股監控")
     if not df_all.empty and "代號_raw" in df_all.columns:
-        df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].copy()
+        df_portfolio = df_all[df_all["代號_raw"].isin(final_portfolio_list)].reset_index(drop=True)
         if not df_portfolio.empty:
-            df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號", "代號_raw"])
-            port_styled = df_portfolio_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
-            port_styled = port_styled.apply(lambda r: apply_price_color(df_portfolio_display, r), subset=["價格"], axis=1)
-            st.markdown(port_styled.to_html(escape=False), unsafe_allow_html=True)
+            df_portfolio_display = df_portfolio.drop(columns=["MA5", "MA10", "MA20", "均線狀態", "訊號"])
+            html_table = render_html_table_with_delete(df_portfolio_display, final_portfolio_list, "p")
+            st.markdown(html_table, unsafe_allow_html=True)
         else: st.info("💡 目前沒有設定任何庫存股。")
     else: st.info("💡 目前沒有資料。")
 
@@ -244,13 +273,10 @@ st.divider()
 with st.container():
     st.subheader("💼 自選明細完整儀表板")
     if not df_all.empty and "代號_raw" in df_all.columns:
-        df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].copy()
+        df_watchlist = df_all[df_all["代號_raw"].isin(final_watchlist_list)].reset_index(drop=True)
         if not df_watchlist.empty:
-            df_watchlist_display = df_watchlist.drop(columns=["代號_raw"])
-            watch_styled = df_watchlist_display.style.format({"價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%", "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"}).map(color, subset=["漲跌", "漲幅%"])
-            watch_styled = watch_styled.apply(lambda r: apply_price_color(df_watchlist_display, r), subset=["價格"], axis=1)
-            watch_styled = watch_styled.apply(lambda r: apply_ma_color(df_watchlist_display, r), subset=["MA5", "MA10", "MA20"], axis=1)
-            st.markdown(watch_styled.to_html(escape=False), unsafe_allow_html=True)
+            html_table_w = render_html_table_with_delete(df_watchlist, final_watchlist_list, "w")
+            st.markdown(html_table_w, unsafe_allow_html=True)
         else: st.info("💡 目前沒有設定任何自選股。")
     else: st.info("💡 目前沒有資料。")
 

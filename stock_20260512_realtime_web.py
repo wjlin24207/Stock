@@ -190,30 +190,36 @@ if not twii.empty:
         delta=f'{r["漲跌"]} ({r["漲幅%"]}%)'
     )
 
+
 # ===============================
-# ✅ 中間：TradingView
+# ✅ 中間：TradingView（穩定版）
 # ===============================
 st.subheader("📈 即時大盤走勢")
 
 st.components.v1.html("""
 <div class="tradingview-widget-container">
   <div id="tv"></div>
+
   <script src="https://s3.tradingview.com/tv.js"></script>
+
   <script>
   new TradingView.widget({
     "width": "100%",
     "height": 500,
-    "symbol": "TWSE:TAIEX",
+    "symbol": "TAIFEX:TX1!",
     "interval": "5",
     "timezone": "Asia/Taipei",
     "theme": "light",
     "style": "1",
     "locale": "zh_TW",
+    "toolbar_bg": "#f1f3f6",
+    "hide_top_toolbar": false,
     "container_id": "tv"
   });
   </script>
 </div>
 """, height=520)
+
 
 # ===============================
 # ✅ 下面：KD 表

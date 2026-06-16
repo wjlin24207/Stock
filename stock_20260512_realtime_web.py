@@ -10,7 +10,11 @@ import plotly.graph_objects as go
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="KD監控儀表板 (即時走勢版)", layout="wide")
+st.set_page_config(page_title="KD監控儀表板 (簡化走勢版)", layout="wide")
+
+# 初始化大盤歷史走勢紀錄器
+if "twii_history" not in st.session_state:
+    st.session_state.twii_history = pd.DataFrame(columns=["時間", "點數"])
 
 # ===== 2. 側邊控制面板 =====
 st.sidebar.title("📊 控制面板")
@@ -24,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("本儀表板融合了 Yahoo 歷史分時數據與證交所即時接口，開啟即可獲得今日完整走勢圖。")
+st.sidebar.info("已為您優化版面：移除庫存區，並將即時大盤價格指標移至走勢圖左側，視覺更專注。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -68,15 +72,13 @@ def get_all_yahoo_hist(stock_list):
         auto_adjust=True
     )
 
-# 新增：專門用來抓取今天大盤分時底圖的函數
+
 def fetch_twii_today_trend():
     try:
-        # 抓取今天(1d)的 1 分鐘 K 線
         df = yf.download("^TWII", period="1d", interval="1m", progress=False)
         if df.empty:
             return pd.DataFrame(columns=["時間", "點數"])
         
-        # 處理 yfinance 的多重索引欄位
         if isinstance(df.columns, pd.MultiIndex):
             close_series = df[('Close', '^TWII')]
         else:
@@ -84,11 +86,8 @@ def fetch_twii_today_trend():
             
         close_series = close_series.dropna()
         
-        # 轉換時間格式為台北時間的 HH:MM
         trend_df = pd.DataFrame(close_series).reset_index()
         trend_df.columns = ["Datetime", "點數"]
-        
-        # 轉換時區到台北時間 (+8)
         trend_df['Datetime'] = pd.to_datetime(trend_df['Datetime'])
         trend_df['時間'] = trend_df['Datetime'].dt.tz_convert('Asia/Taipei').dt.strftime('%H:%M')
         
@@ -190,12 +189,10 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
 
 # ===== 4. 主程式資料流準備 =====
-inventory_stocks = ["2330", "0050", "3711"]
-watchlist_stocks = ["^TWII", "0056", "00878", "00919", "00981A", "00988A", "00631L"]
-all_target_stocks = list(set(inventory_stocks + watchlist_stocks))
+watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
-prices = get_all_live_prices(all_target_stocks)
-hists = get_all_yahoo_hist(all_target_stocks)
+prices = get_all_live_prices(watchlist_stocks)
+hists = get_all_yahoo_hist(watchlist_stocks)
 
 # 載入或更新大盤今日分時走勢底圖
 if "twii_base_loaded" not in st.session_state:
@@ -204,116 +201,94 @@ if "twii_base_loaded" not in st.session_state:
 
 
 # ==========================================
-# ===== 5. 網頁版面布局 (精準還原圖示) =====
+# ===== 5. 網頁版面布局 (全新優化簡化) =====
 # ==========================================
 
 st.title("📊 策略監控儀表板（專業版）")
 st.markdown("---")
 
-# --- 第一層：左右分割 [庫存 | 大盤與指標] ---
-main_col_left, main_col_right = st.columns([1, 2])
+# --- 第一層：大盤走勢與指標區 (寬度配置 1:3，讓左邊放價格數據，右邊放走勢圖) ---
+st.subheader("📈 當日加權指數即時走勢")
+trend_col_left, trend_col_right = st.columns([1, 3])
 
-# 【左上區塊：庫存】
-with main_col_left:
-    st.subheader("📋 我的庫存")
-    inv_rows = []
-    for sid in inventory_stocks:
-        live = prices.get(sid)
-        key = f"{sid}.TW" if not sid.startswith("^") else sid
+twii_live = prices.get("^TWII")
+
+# 【左側：即時價格與關鍵數據】
+with trend_col_left:
+    if twii_live:
+        z_val = float(twii_live.get('z', twii_live.get('y', 0)))
+        y_val = float(twii_live.get('y', 0))
+        diff_val = z_val - y_val
+        pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
         
-        hist = None
-        if isinstance(hists.columns, pd.MultiIndex):
-            if key in hists.columns.levels[0]: hist = hists[key]
-        else: hist = hists
-
-        if live and hist is not None:
-            res = process_kd_logic(sid, live, hist)
-            if res: inv_rows.append(res)
-            
-    if inv_rows:
-        inv_df = pd.DataFrame(inv_rows)
-        st.dataframe(inv_df[["代號", "名稱", "價格", "漲幅%", "訊號"]], use_container_width=True, hide_index=True)
+        # 使用自訂 HTML 強化大盤數據顯示效果
+        color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
+        st.markdown(f"""
+        <div style="background-color:rgba(255,255,255,0.05); padding:15px; border-radius:10px; border-left: 5px solid {color_code}; margin-bottom:10px;">
+            <p style="margin:0; font-size:14px; color:#888;">加權指數最新點數</p>
+            <h1 style="margin:5px 0; font-size:36px; color:{color_code}; font-weight:bold;">{z_val:,.2f}</h1>
+            <p style="margin:0; font-size:16px; color:{color_code}; font-weight:bold;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</p>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.info("暫無庫存資料")
+        st.metric(label="加權指數最新點數", value="讀取中...")
+        
+    st.metric(label="預估成交量", value="3,850 億")
+    st.metric(label="市場信心指標", value="多方控盤")
 
-
-# 【右上區塊：大盤即時走勢 + 其他指標】
-with main_col_right:
-    sub_col_chart, sub_col_metric = st.columns(2)
-    
-    # 1. 混合型即時單日走勢圖
-    with sub_col_chart:
-        st.subheader("📈 當日加權指數即時走勢")
-        twii_live = prices.get("^TWII")
-        if twii_live:
-            # 獲取證交所最新點數
-            current_point = twii_live.get('z', '-')
-            if current_point in ['-', '', None]:
-                current_point = twii_live.get('y', '0')
-            current_point = float(current_point)
-            
-            # 簡化時間戳為 HH:MM 以便與歷史資料對齊
-            t_raw = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
-            current_time_hm = t_raw[:5] 
-            
-            # 將最新的一筆即時數據，合併/更新進歷史清單
-            new_row = pd.DataFrame([{"時間": current_time_hm, "點數": current_point}])
-            if st.session_state.twii_history.empty:
-                st.session_state.twii_history = new_row
+# 【右側：折線圖本體】
+with trend_col_right:
+    if twii_live:
+        current_point = twii_live.get('z', '-')
+        if current_point in ['-', '', None]:
+            current_point = twii_live.get('y', '0')
+        current_point = float(current_point)
+        
+        t_raw = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
+        current_time_hm = t_raw[:5] 
+        
+        new_row = pd.DataFrame([{"時間": current_time_hm, "點數": current_point}])
+        if st.session_state.twii_history.empty:
+            st.session_state.twii_history = new_row
+        else:
+            if current_time_hm in st.session_state.twii_history["時間"].values:
+                st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = current_point
             else:
-                # 如果該分鐘已存在就更新點數，不存在則新增一行
-                if current_time_hm in st.session_state.twii_history["時間"].values:
-                    st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = current_point
-                else:
-                    st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
-            
-            # 排序確保連線正確
-            st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
-            
-            # 畫出走勢折線圖
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=st.session_state.twii_history["時間"],
-                y=st.session_state.twii_history["點數"],
-                mode='lines',
-                name='大盤即時走勢',
-                line=dict(color='#FF4B4B', width=2),
-                fill='tozeroy',  # 新增：下方半透明填滿，視覺效果更像專業看盤軟體
-                fillcolor='rgba(255, 75, 75, 0.05)'
-            ))
-            
-            y_max = st.session_state.twii_history["點數"].max() * 1.001
-            y_min = st.session_state.twii_history["點數"].min() * 0.999
-            
-            fig.update_layout(
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=260,
-                xaxis=dict(nticks=10, tickangle=0),
-                yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="right"), # 依據傳統習慣將 Y 軸放右邊
-                template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("正在接收大盤即時數據...")
-
-    # 2. 其他關鍵指標看板
-    with sub_col_metric:
-        st.subheader("🔍 其他關鍵指標")
-        if twii_live:
-            z_val = float(twii_live.get('z', twii_live.get('y', 0)))
-            y_val = float(twii_live.get('y', 0))
-            diff_val = z_val - y_val
-            st.metric(label="加權指數最新點數", value=f"{z_val:,.2f}", delta=f"{diff_val:+,.2f}")
-        else:
-            st.metric(label="加權指數最新點數", value="讀取中...")
-        st.metric(label="預估成交量", value="3,850 億")
-        st.metric(label="市場信心指標", value="多方控盤")
+                st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
+        
+        st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
+        
+        # 繪圖
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=st.session_state.twii_history["時間"],
+            y=st.session_state.twii_history["點數"],
+            mode='lines',
+            name='大盤即時走勢',
+            line=dict(color='#FF4B4B', width=2),
+            fill='tozeroy',
+            fillcolor='rgba(255, 75, 75, 0.03)'
+        ))
+        
+        y_max = st.session_state.twii_history["點數"].max() * 1.0005
+        y_min = st.session_state.twii_history["點數"].min() * 0.9995
+        
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=280,
+            xaxis=dict(nticks=10, tickangle=0),
+            yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="right"),
+            template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("正在接收大盤即時數據...")
 
 
 st.markdown("---")
 
 
-# --- 第二層：下方全寬 [自選股] ---
+# --- 第二層：下方全寬 [自選股看板] ---
 st.subheader("⭐ 自選股監控看板")
 
 watch_rows = []

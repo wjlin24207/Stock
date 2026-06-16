@@ -265,7 +265,7 @@ pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
 
 color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
 
-# 🌟 這裡已修改：專為手機網頁優化的彈性流動排版（Flexbox with wrap）
+# 專為手機網頁優化的彈性流動排版（Flexbox with wrap）
 st.markdown(f"""
 <div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
     <div style="flex:1; min-width:140px; white-space:nowrap;">
@@ -309,7 +309,6 @@ if not st.session_state.twii_history.empty and y_val > 0:
     if max_deviation == 0:
         max_deviation = y_val * 0.001
         
-    # 🛠️ 關鍵優化：加上 1.15 的係數，為 Y 軸最高與最低點往外預留 15% 的空間，使折線起伏更流暢好看
     y_limit_top = y_val + (max_deviation * 1.2)
     y_limit_bottom = y_val - (max_deviation * 1.2)
     
@@ -432,7 +431,8 @@ else:
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
+    # 🌟 這裡已修改：在轉為 HTML 前加上 .hide(axis='index') 來隱藏最左邊的 0,1,2,3 欄位
+    st.markdown(styled.hide(axis='index').to_html(escape=False), unsafe_allow_html=True)
 
 
 # ===== 6. 倒數計時並自動重整 (30秒) =====

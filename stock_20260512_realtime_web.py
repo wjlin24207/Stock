@@ -12,10 +12,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ===== 1. 頁面初始化與設定 =====
 st.set_page_config(page_title="KD監控儀表板 (即時走勢版)", layout="wide")
 
-# 初始化大盤歷史走勢紀錄器（用來存當天開盤到現在的即時點數，避免刷新時不見）
-if "twii_history" not in st.session_state:
-    st.session_state.twii_history = pd.DataFrame(columns=["時間", "點數"])
-
 # ===== 2. 側邊控制面板 =====
 st.sidebar.title("📊 控制面板")
 
@@ -23,10 +19,12 @@ taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.sidebar.write(f"⏱️ 上次更新：{taiwan_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 if st.sidebar.button("🔄 手動刷新資料"):
+    if "twii_base_loaded" in st.session_state:
+        del st.session_state.twii_base_loaded
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("本儀表板大盤走勢圖採用動態流線繪製，會隨著每一次自動刷新（預設30秒）實時累加最新點數。")
+st.sidebar.info("本儀表板融合了 Yahoo 歷史分時數據與證交所即時接口，開啟即可獲得今日完整走勢圖。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -69,6 +67,34 @@ def get_all_yahoo_hist(stock_list):
         group_by='ticker',
         auto_adjust=True
     )
+
+# 新增：專門用來抓取今天大盤分時底圖的函數
+def fetch_twii_today_trend():
+    try:
+        # 抓取今天(1d)的 1 分鐘 K 線
+        df = yf.download("^TWII", period="1d", interval="1m", progress=False)
+        if df.empty:
+            return pd.DataFrame(columns=["時間", "點數"])
+        
+        # 處理 yfinance 的多重索引欄位
+        if isinstance(df.columns, pd.MultiIndex):
+            close_series = df[('Close', '^TWII')]
+        else:
+            close_series = df['Close']
+            
+        close_series = close_series.dropna()
+        
+        # 轉換時間格式為台北時間的 HH:MM
+        trend_df = pd.DataFrame(close_series).reset_index()
+        trend_df.columns = ["Datetime", "點數"]
+        
+        # 轉換時區到台北時間 (+8)
+        trend_df['Datetime'] = pd.to_datetime(trend_df['Datetime'])
+        trend_df['時間'] = trend_df['Datetime'].dt.tz_convert('Asia/Taipei').dt.strftime('%H:%M')
+        
+        return trend_df[["時間", "點數"]].drop_duplicates(subset=["時間"])
+    except:
+        return pd.DataFrame(columns=["時間", "點數"])
 
 
 def process_kd_logic(stock_id, live_info, hist_df):
@@ -164,14 +190,17 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
 
 # ===== 4. 主程式資料流準備 =====
-# 定義你的庫存股與自選股清單
 inventory_stocks = ["2330", "0050", "3711"]
 watchlist_stocks = ["^TWII", "0056", "00878", "00919", "00981A", "00988A", "00631L"]
 all_target_stocks = list(set(inventory_stocks + watchlist_stocks))
 
-# 抓取即時數據
 prices = get_all_live_prices(all_target_stocks)
 hists = get_all_yahoo_hist(all_target_stocks)
+
+# 載入或更新大盤今日分時走勢底圖
+if "twii_base_loaded" not in st.session_state:
+    st.session_state.twii_history = fetch_twii_today_trend()
+    st.session_state.twii_base_loaded = True
 
 
 # ==========================================
@@ -203,7 +232,6 @@ with main_col_left:
             
     if inv_rows:
         inv_df = pd.DataFrame(inv_rows)
-        # 庫存區欄位精簡，避免擠壓變形
         st.dataframe(inv_df[["代號", "名稱", "價格", "漲幅%", "訊號"]], use_container_width=True, hide_index=True)
     else:
         st.info("暫無庫存資料")
@@ -213,42 +241,58 @@ with main_col_left:
 with main_col_right:
     sub_col_chart, sub_col_metric = st.columns(2)
     
-    # 1. 真正的即時單日走勢圖
+    # 1. 混合型即時單日走勢圖
     with sub_col_chart:
         st.subheader("📈 當日加權指數即時走勢")
         twii_live = prices.get("^TWII")
         if twii_live:
-            # 獲取當前點數與時間
+            # 獲取證交所最新點數
             current_point = twii_live.get('z', '-')
             if current_point in ['-', '', None]:
                 current_point = twii_live.get('y', '0')
             current_point = float(current_point)
-            current_time = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
             
-            # 塞入 Session State 歷史紀錄中
-            new_data = pd.DataFrame([{"時間": current_time, "點數": current_point}])
-            if st.session_state.twii_history.empty or st.session_state.twii_history["時間"].iloc[-1] != current_time:
-                st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_data], ignore_index=True)
+            # 簡化時間戳為 HH:MM 以便與歷史資料對齊
+            t_raw = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
+            current_time_hm = t_raw[:5] 
+            
+            # 將最新的一筆即時數據，合併/更新進歷史清單
+            new_row = pd.DataFrame([{"時間": current_time_hm, "點數": current_point}])
+            if st.session_state.twii_history.empty:
+                st.session_state.twii_history = new_row
+            else:
+                # 如果該分鐘已存在就更新點數，不存在則新增一行
+                if current_time_hm in st.session_state.twii_history["時間"].values:
+                    st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = current_point
+                else:
+                    st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
+            
+            # 排序確保連線正確
+            st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
             
             # 畫出走勢折線圖
-            if not st.session_state.twii_history.empty:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=st.session_state.twii_history["時間"],
-                    y=st.session_state.twii_history["點數"],
-                    mode='lines',
-                    name='大盤即時走勢',
-                    line=dict(color='#FF4B4B', width=2.5)
-                ))
-                y_max = st.session_state.twii_history["點數"].max() * 1.0005
-                y_min = st.session_state.twii_history["點數"].min() * 0.9995
-                fig.update_layout(
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    height=260,
-                    yaxis=dict(range=[y_min, y_max], tickformat=",.0f"),
-                    template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=st.session_state.twii_history["時間"],
+                y=st.session_state.twii_history["點數"],
+                mode='lines',
+                name='大盤即時走勢',
+                line=dict(color='#FF4B4B', width=2),
+                fill='tozeroy',  # 新增：下方半透明填滿，視覺效果更像專業看盤軟體
+                fillcolor='rgba(255, 75, 75, 0.05)'
+            ))
+            
+            y_max = st.session_state.twii_history["點數"].max() * 1.001
+            y_min = st.session_state.twii_history["點數"].min() * 0.999
+            
+            fig.update_layout(
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=260,
+                xaxis=dict(nticks=10, tickangle=0),
+                yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="right"), # 依據傳統習慣將 Y 軸放右邊
+                template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("正在接收大盤即時數據...")
 
@@ -293,9 +337,8 @@ else:
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     df["代號_raw"] = df["代號/K線"]
 
-    # 點擊連結設定
     def make_id_link(row):
-        sid = row["代raw"] if "代raw" in row else row["代號_raw"]
+        sid = row["代號_raw"]
         if sid == "^TWII": return f'<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">{sid}</a>'
         return f'<a href="https://tw.stock.yahoo.com/quote/{sid}/technical-analysis" target="_blank">{sid}</a>'
 
@@ -310,7 +353,6 @@ else:
     df["代號/K線"] = df.apply(make_id_link, axis=1)
     df = df.drop(columns=["代號_raw"])
 
-    # 樣式渲染
     styled = df.style.format({
         "價格": "{:,.2f}", "漲跌": "{:+,.2f}", "漲幅%": "{:+,.2f}%",
         "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"
@@ -330,7 +372,6 @@ else:
         return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
     styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
 
-    # 注入全螢幕響應式 CSS 排版
     st.markdown("""
     <style>
     table { width: 100% !important; table-layout: auto; }

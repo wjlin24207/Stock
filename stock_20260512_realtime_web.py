@@ -310,12 +310,12 @@ if not st.session_state.twii_history.empty and y_val > 0:
         max_deviation = y_val * 0.001
         
     # 🛠️ 關鍵優化：加上 1.15 的係數，為 Y 軸最高與最低點往外預留 15% 的空間，使折線起伏更流暢好看
-    y_limit_top = y_val + (max_deviation * 1.15)
-    y_limit_bottom = y_val - (max_deviation * 1.15)
+    y_limit_top = y_val + (max_deviation * 1.2)
+    y_limit_bottom = y_val - (max_deviation * 1.2)
     
     # 依據留白後的邊界重新均分對稱刻度五條線
-    mid_top = y_val + ((max_deviation * 1.15) / 2.0)
-    mid_bottom = y_val - ((max_deviation * 1.15) / 2.0)
+    mid_top = y_val + ((max_deviation * 1.2) / 2.0)
+    mid_bottom = y_val - ((max_deviation * 1.2) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
     market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]

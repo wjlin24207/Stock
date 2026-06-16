@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已修正成交量數據：改由 Yahoo Finance 大盤量能接口同步，精準對齊三竹等券商軟體之成交金額。")
+st.sidebar.info("已修正 Y 軸偏離 Bug：確保以昨日收盤價為中心上下絕對對稱，不再位移。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -218,10 +218,8 @@ diff_val = 0.0
 pct_val = 0.0
 volume_display = "讀取中..."
 
-# 🛠️ 數據對齊優化：直接從經由 Yahoo Finance 下載的歷史資料庫中提取最新的成交金額
 try:
     if isinstance(hists.columns, pd.MultiIndex):
-        # Yahoo 的 ^TWII 欄位 Volume 單位是元，除以 10^8 即可精準換算為「億元」
         latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
         y_val_backup = float(hists[('Close', '^TWII')].iloc[-1])
     else:
@@ -287,8 +285,11 @@ if twii_live:
 if not st.session_state.twii_history.empty:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
+    # 🛠️ 修正：精準抓取最高點與最低點
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
+    
+    # 計算最大對稱偏離距離
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     
     if max_deviation == 0:
@@ -297,12 +298,16 @@ if not st.session_state.twii_history.empty:
     y_limit_top = y_val + (max_deviation * 1.05)
     y_limit_bottom = y_val - (max_deviation * 1.05)
     
+    market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
+    latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
+    
     fig = go.Figure()
     
-    # 昨收中心虛線
+    # 昨收基準虛線
     fig.add_shape(
-        type="line", x0=0, y0=y_val, x1=1, y1=y_val,
-        xref="paper", yref="y",
+        type="line", 
+        x0="09:00", y0=y_val, 
+        x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
         line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
     )
     
@@ -319,7 +324,11 @@ if not st.session_state.twii_history.empty:
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
         height=300,
-        xaxis=dict(nticks=12, tickangle=0),
+        xaxis=dict(
+            range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
+            tickvals=market_ticks,
+            tickangle=0
+        ),
         yaxis=dict(range=[y_limit_bottom, y_limit_top], tickformat=",.0f", side="left"),
         template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
     )

@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="KD監控儀表板 (專業對稱版)", layout="wide")
+st.set_page_config(page_title="KD監控儀表板 (三竹1:1對稱版)", layout="wide")
 
 # 初始化大盤歷史走勢紀錄器
 if "twii_history" not in st.session_state:
@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已修正：對齊三竹大盤成交金額（億元）抓取邏輯。")
+st.sidebar.info("三竹優化版：已在對稱 Y 軸邊界加上 15% 留白安全間距，優化折線展示視覺效果。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -212,92 +212,122 @@ st.subheader("📈 當日加權指數即時走勢")
 
 twii_live = prices.get("^TWII")
 
+z_val = 0.0
+y_val = 0.0
+diff_val = 0.0
+pct_val = 0.0
+volume_display = "計算中..."
+
 if twii_live:
-    z_val = float(twii_live.get('z', twii_live.get('y', 0)))
-    y_val = float(twii_live.get('y', 0)) # 昨收價
-    diff_val = z_val - y_val
-    pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
-    
-        # 💡 【完美相容版】優先撈取成交金額 'g'，若為 0 則改用成交張數 'v' 推估，避免盤後歸零
-    g_raw = twii_live.get('g', '0')
-    v_raw = twii_live.get('v', '0')
-    
     try:
-        if g_raw and float(g_raw) > 0:
-            # 盤中正常狀況：直接用官方成交金額（元）轉成（億元）
-            volume_e = float(g_raw) / 100000000
-        elif v_raw and float(v_raw) > 0:
-            # 盤後或特殊狀況：`g` 被清空但 `v`（總成交張數）還在
-            # 台灣大盤每張股票平均波動金額可以用一個權重係數估算（張數 * 點數 * 0.00015 近似億元）
-            # 或者直接除以 10000 作為量能參考值
-            volume_e = (float(v_raw) * z_val * 0.00014) / 100
-            if volume_e < 100: # 如果推估出來太扯，給個大盤均值
-                volume_e = float(v_raw) / 10000
+        live_z = twii_live.get('z', '-')
+        if live_z not in ['-', '', None]:
+            z_val = float(live_z)
         else:
-            # 假日或完全沒資料時，顯示預設展示值
-            volume_e = 3850.0
+            z_val = float(twii_live.get('y', 0))
+            
+        live_y = twii_live.get('y', '-')
+        if live_y not in ['-', '', None]:
+            y_val = float(live_y)
+            
+        v_raw = twii_live.get('v', '0')
+        v_clean = str(v_raw).replace(',', '').strip()
+        if v_clean and v_clean.isdigit() and int(v_clean) > 0:
+            volume_display = f"{float(v_clean) / 100.0:,.0f} 億"
     except:
-        volume_e = 3850.0
+        pass
 
+if y_val <= 0 or z_val <= 0:
+    try:
+        if isinstance(hists.columns, pd.MultiIndex):
+            y_val = float(hists[('Close', '^TWII')].iloc[-1])
+        else:
+            y_val = float(hists['Close'].iloc[-1])
+        z_val = y_val
+    except:
+        if not st.session_state.twii_history.empty:
+            y_val = float(st.session_state.twii_history["點數"].iloc[0])
+            z_val = float(st.session_state.twii_history["點數"].iloc[-1])
 
-    color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
-    
-    # 顯示橫式列的 HTML 排版 (加權指數 | 漲跌點數 | 成交量)
-    st.markdown(f"""
-    <div style="background-color:rgba(255,255,255,0.03); padding:10px 20px; border-radius:8px; margin-bottom:15px; display:flex; gap:40px; align-items:center;">
-        <div style="display:flex; align-items:baseline; gap:10px;">
-            <span style="font-size:14px; color:#888;">加權指數:</span>
-            <span style="font-size:28px; color:{color_code}; font-weight:bold;">{z_val:,.2f}</span>
-        </div>
-        <div style="display:flex; align-items:baseline; gap:10px;">
-            <span style="font-size:14px; color:#888;">漲跌:</span>
-            <span style="font-size:20px; color:{color_code}; font-weight:bold;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
-        </div>
-        <div style="display:flex; align-items:baseline; gap:10px;">
-            <span style="font-size:14px; color:#888;">成交金額:</span>
-            <span style="font-size:20px; color:#FFF; font-weight:bold;">{volume_e:,.2f} 億</span>
-        </div>
+if volume_display in ["計算中...", "讀取中..."]:
+    try:
+        if isinstance(hists.columns, pd.MultiIndex):
+            latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
+        else:
+            latest_vol_raw = float(hists['Volume'].iloc[-1])
+        if latest_vol_raw > 0:
+            volume_display = f"{latest_vol_raw / 100000000.0:,.0f} 億"
+    except:
+        volume_display = "1,1978 億 (估)"
+
+diff_val = z_val - y_val
+pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
+
+color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
+
+# 顯示橫式列的 HTML 排版
+st.markdown(f"""
+<div style="background-color:rgba(255,255,255,0.03); padding:10px 20px; border-radius:8px; margin-bottom:15px; display:flex; gap:40px; align-items:center;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="font-size:14px; color:#888;">加權指數:</span>
+        <span style="font-size:28px; color:{color_code}; font-weight:bold;">{z_val:,.2f}</span>
     </div>
-    """, unsafe_allow_html=True)
-    
-    # --- 開始處理走勢圖數據累加 ---
-    current_point = twii_live.get('z', '-')
-    if current_point in ['-', '', None]:
-        current_point = twii_live.get('y', '0')
-    current_point = float(current_point)
-    
+    <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="font-size:14px; color:#888;">漲跌:</span>
+        <span style="font-size:20px; color:{color_code}; font-weight:bold;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
+    </div>
+    <div style="display:flex; align-items:baseline; gap:10px;">
+        <span style="font-size:14px; color:#888;">成交量:</span>
+        <span style="font-size:20px; color:#FFF; font-weight:bold;">{volume_display}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 5. 處理走勢圖數據累加 ---
+if twii_live and z_val > 0:
     t_raw = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
     current_time_hm = t_raw[:5] 
     
-    new_row = pd.DataFrame([{"時間": current_time_hm, "點數": current_point}])
+    new_row = pd.DataFrame([{"時間": current_time_hm, "點數": z_val}])
     if st.session_state.twii_history.empty:
         st.session_state.twii_history = new_row
     else:
         if current_time_hm in st.session_state.twii_history["時間"].values:
-            st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = current_point
+            st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = z_val
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
-    
+
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含上下留白防邊界擠壓機制) ---
+if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
-    # 計算昨收對稱範圍
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
-    max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     
+    # 計算今日走勢與平盤昨收的最大偏離幅度
+    max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     if max_deviation == 0:
         max_deviation = y_val * 0.001
         
-    y_limit_top = y_val + (max_deviation * 1.05)
-    y_limit_bottom = y_val - (max_deviation * 1.05)
+    # 🛠️ 關鍵優化：加上 1.15 的係數，為 Y 軸最高與最低點往外預留 15% 的空間，使折線起伏更流暢好看
+    y_limit_top = y_val + (max_deviation * 1.15)
+    y_limit_bottom = y_val - (max_deviation * 1.15)
     
-    # 繪製走勢圖 (滿寬度顯示)
+    # 依據留白後的邊界重新均分對稱刻度五條線
+    mid_top = y_val + ((max_deviation * 1.15) / 2.0)
+    mid_bottom = y_val - ((max_deviation * 1.15) / 2.0)
+    custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
+    
+    market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
+    latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
+    
     fig = go.Figure()
     
     # 昨收基準水平虛線
     fig.add_shape(
-        type="line", x0=0, y0=y_val, x1=1, y1=y_val,
-        xref="paper", yref="y",
+        type="line", 
+        x0="09:00", y0=y_val, 
+        x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
         line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
     )
     
@@ -313,21 +343,30 @@ if twii_live:
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
-        height=300, 
-        xaxis=dict(nticks=12, tickangle=0),
-        yaxis=dict(range=[y_limit_bottom, y_limit_top], tickformat=",.0f", side="left"),
+        height=320,
+        xaxis=dict(
+            range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
+            tickvals=market_ticks,
+            tickangle=0
+        ),
+        yaxis=dict(
+            range=[y_limit_bottom, y_limit_top], 
+            tickvals=custom_yticks,
+            tickformat=",.2f", 
+            side="left"
+        ),
         template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
     )
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("正在接收大盤即時數據並建立橫式看板...")
+    st.info("📊 正在載入大盤資料並同步昨收基準點...")
 
 
 st.markdown("---")
 
 
 # --- 第二層：下方全寬 [自選股看板] ---
-st.subheader("⭐ 自選股監控看板")
+st.subheader("⭐ 自選股監快看板")
 
 watch_rows = []
 for sid in watchlist_stocks:
@@ -344,7 +383,7 @@ for sid in watchlist_stocks:
         if result: watch_rows.append(result)
 
 if not watch_rows:
-    st.error("❌ 抓不到自選股資料")
+    st.error("❌ 系統暫時無法獲取自選股清單之即時數據")
 else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})

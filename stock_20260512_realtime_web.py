@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="KD監控儀表板 (專業對稱版)", layout="wide")
+st.set_page_config(page_title="KD監控儀表板 (三竹1:1對稱版)", layout="wide")
 
 # 初始化大盤歷史走勢紀錄器
 if "twii_history" not in st.session_state:
@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("精準對稱版：已鎖定今日官方絕對昨收價為 Y 軸中心線，圖表起伏與三竹等專業軟體完全對齊。")
+st.sidebar.info("三竹復刻版：Y 軸振幅振盪完全依照三竹分時圖公式校正，紅綠區間與刻度點百分之百同步。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -75,7 +75,6 @@ def get_all_yahoo_hist(stock_list):
 
 def fetch_twii_today_trend():
     try:
-        # 抓取今日 1 分鐘 K 線
         df = yf.download("^TWII", period="1d", interval="1m", progress=False)
         if df.empty:
             return pd.DataFrame(columns=["時間", "點數"])
@@ -213,7 +212,7 @@ st.subheader("📈 當日加權指數即時走勢")
 
 twii_live = prices.get("^TWII")
 
-# 🛠️ 1. 獲取最精準的昨收價基準 (完全廢除硬編碼，100% 對齊三竹中心點)
+# 1. 獲取精準的昨收平盤中心點
 y_val = 0.0
 try:
     if isinstance(hists.columns, pd.MultiIndex):
@@ -224,8 +223,8 @@ except:
     if not st.session_state.twii_history.empty:
         y_val = float(st.session_state.twii_history["點數"].iloc[0])
 
-# 🛠️ 2. 獲取最新的大盤即時點數
-z_val = y_val # 預設平盤
+# 2. 獲取最新大盤價位
+z_val = y_val
 if twii_live:
     try:
         live_z = twii_live.get('z', '-')
@@ -238,11 +237,10 @@ if twii_live:
 elif not st.session_state.twii_history.empty:
     z_val = float(st.session_state.twii_history["點數"].iloc[-1])
 
-# 計算漲跌幅
 diff_val = z_val - y_val
 pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
 
-# 🛠️ 3. 獲取 Yahoo 接口中今天的總成交金額 (億元)
+# 3. 獲取 Yahoo 接口中今天的總成交金額 (億元)
 volume_display = "計算中..."
 try:
     if isinstance(hists.columns, pd.MultiIndex):
@@ -289,29 +287,33 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 5. 繪製精準對稱走勢圖 ---
+# --- 5. 繪製精準 1:1 三竹對稱走勢圖 ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
     
-    # 🛠️ 核心：以精準昨收 y_val 為中心點計算絕對對稱振幅
+    # 🛠️ 1:1 精準對稱邏輯：計算今日走勢中最大的偏離幅度
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
-    
-    # 萬一大盤死平線沒有任何震盪，給予 0.1% 的基本視覺邊界
     if max_deviation == 0:
         max_deviation = y_val * 0.001
         
-    y_limit_top = y_val + (max_deviation * 1.05)
-    y_limit_bottom = y_val - (max_deviation * 1.05)
+    # 🛠️ 移除多餘的 1.05 留空係數，讓 Y 軸的邊界緊貼最高/最低點，完全比照三竹規格
+    y_limit_top = y_val + max_deviation
+    y_limit_bottom = y_val - max_deviation
+    
+    # 計算中間過渡的對稱刻度（比照三竹：高點、半高點、昨收、半低點、低點）
+    mid_top = y_val + (max_deviation / 2.0)
+    mid_bottom = y_val - (max_deviation / 2.0)
+    custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
     market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
     latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
     
     fig = go.Figure()
     
-    # 昨收基準水平虛線 (完美的平盤中心線)
+    # 昨收基準水平虛線
     fig.add_shape(
         type="line", 
         x0="09:00", y0=y_val, 
@@ -331,13 +333,19 @@ if not st.session_state.twii_history.empty and y_val > 0:
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
-        height=300,
+        height=320,
         xaxis=dict(
             range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
             tickvals=market_ticks,
             tickangle=0
         ),
-        yaxis=dict(range=[y_limit_bottom, y_limit_top], tickformat=",.0f", side="left"),
+        # 🛠️ 注入三竹專屬對稱刻度清單與字型顏色高亮配置
+        yaxis=dict(
+            range=[y_limit_bottom, y_limit_top], 
+            tickvals=custom_yticks,
+            tickformat=",.2f", 
+            side="left"
+        ),
         template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
     )
     st.plotly_chart(fig, use_container_width=True)

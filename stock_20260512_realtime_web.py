@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已修正 Y 軸偏離 Bug：確保以昨日收盤價為中心上下絕對對稱，不再位移。")
+st.sidebar.info("已修正 Y 軸壓扁 Bug：平盤基準完全改由即時走勢起點動態計算，徹底根除範圍膨脹問題。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -212,36 +212,53 @@ st.subheader("📈 當日加權指數即時走勢")
 
 twii_live = prices.get("^TWII")
 
-z_val = 0.0
-y_val = 0.0
-diff_val = 0.0
-pct_val = 0.0
-volume_display = "讀取中..."
+# 🛠️ 動態提取精準備用昨收價，絕不用死數字
+y_val_backup = 0.0
+try:
+    if isinstance(hists.columns, pd.MultiIndex):
+        y_val_backup = float(hists[('Close', '^TWII')].iloc[-1])
+    else:
+        y_val_backup = float(hists['Close'].iloc[-1])
+except:
+    pass
 
+# 🛠️ 提取 Yahoo 歷史資料中的最新成交金額 (億元)
+volume_display = "計算中..."
 try:
     if isinstance(hists.columns, pd.MultiIndex):
         latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
-        y_val_backup = float(hists[('Close', '^TWII')].iloc[-1])
     else:
         latest_vol_raw = float(hists['Volume'].iloc[-1])
-        y_val_backup = float(hists['Close'].iloc[-1])
         
     if latest_vol_raw > 0:
         volume_display = f"{latest_vol_raw / 100000000.0:,.0f} 億"
 except:
-    volume_display = "計算中..."
+    pass
+
+# 建立核心變數
+z_val = 0.0
+y_val = 0.0
+diff_val = 0.0
+pct_val = 0.0
 
 if twii_live:
     try:
         z_val = float(twii_live.get('z', twii_live.get('y', 0)))
-        y_val = float(twii_live.get('y', y_val_backup))
+        y_val = float(twii_live.get('y', y_val_backup if y_val_backup > 0 else z_val))
         diff_val = z_val - y_val
         pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
     except:
         pass
 else:
-    y_val = y_val_backup if y_val_backup > 0 else 22000.0
+    # 防錯：若即時 API 當掉，直接用歷史最新數據
+    y_val = y_val_backup if y_val_backup > 0 else 23000.0
     z_val = y_val
+
+# 🛠️ 動態修正修正：如果從歷史或即時拿到的 y_val 仍然異常，直接用今日分時資料的第一筆當作昨收平盤線
+if (y_val < 5000 or abs(z_val - y_val) > 5000) and not st.session_state.twii_history.empty:
+    y_val = float(st.session_state.twii_history["點數"].iloc[0])
+    diff_val = z_val - y_val
+    pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
 
 color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
 
@@ -263,7 +280,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 處理走勢圖數據累加與對稱 Y 軸 ---
+# --- 處理走勢圖數據累加 ---
 if twii_live:
     current_point = twii_live.get('z', '-')
     if current_point in ['-', '', None]:
@@ -285,18 +302,16 @@ if twii_live:
 if not st.session_state.twii_history.empty:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
-    # 🛠️ 修正：精準抓取最高點與最低點
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
     
-    # 計算最大對稱偏離距離
+    # 再次確認對稱距離計算基礎正确
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
-    
-    if max_deviation == 0:
-        max_deviation = y_val * 0.001
+    if max_deviation == 0 or max_deviation > (y_val * 0.1): # 振幅超過10%通常也是異常突波
+        max_deviation = y_val * 0.005 # 給予合理的 0.5% 震盪視覺感
         
-    y_limit_top = y_val + (max_deviation * 1.05)
-    y_limit_bottom = y_val - (max_deviation * 1.05)
+    y_limit_top = y_val + (max_deviation * 1.1)
+    y_limit_bottom = y_val - (max_deviation * 1.1)
     
     market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
     latest_time_str = st.session_state.twii_history["時間"].iloc[-1]

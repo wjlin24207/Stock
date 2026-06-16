@@ -5,20 +5,11 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
-import streamlit.components.v1 as components   # ✅ 新增
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
 st.title("📊 策略監控儀表板（專業版）")
-
-# ✅ ===== 新增 Yahoo 大盤區塊 =====
-st.subheader("📊 Yahoo 台股大盤")
-components.iframe(
-    "https://tw.stock.yahoo.com/tw-market",
-    height=600,
-    scrolling=True
-)
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -163,9 +154,6 @@ target_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", 
 taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.write("更新時間：", taiwan_time.strftime("%Y-%m-%d %H:%M:%S"))
 
-if st.button("🔄 手動刷新"):
-    st.rerun()
-
 prices = get_all_live_prices(target_stocks)
 hists = get_all_yahoo_hist(target_stocks)
 
@@ -189,43 +177,51 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
+# ===============================
+# ✅ 上面：TWII 指數
+# ===============================
+twii = df[df["名稱"] == "加權指數"]
+
+if not twii.empty:
+    r = twii.iloc[0]
+    st.metric(
+        label="📊 加權指數 TWII",
+        value=r["價格"],
+        delta=f'{r["漲跌"]} ({r["漲幅%"]}%)'
+    )
+
+# ===============================
+# ✅ 中間：TradingView
+# ===============================
+st.subheader("📈 即時大盤走勢")
+
+st.components.v1.html("""
+<div class="tradingview-widget-container">
+  <div id="tv"></div>
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+  new TradingView.widget({
+    "width": "100%",
+    "height": 500,
+    "symbol": "TVC:TWII",
+    "interval": "5",
+    "timezone": "Asia/Taipei",
+    "theme": "light",
+    "style": "1",
+    "locale": "zh_TW",
+    "container_id": "tv"
+  });
+  </script>
+</div>
+""", height=520)
+
+# ===============================
+# ✅ 下面：KD 表
+# ===============================
 df = df.rename(columns={
-    "代號": "代號/K線",
-    "名稱": "名稱/成份股"
+    "代號": "代號",
+    "名稱": "名稱"
 })
-
-df["代號_raw"] = df["代號/K線"]
-
-def make_id_link(row):
-    sid = row["代號_raw"]
-
-    if sid == "^TWII":
-        url = "https://tw.stock.yahoo.com/tw-market"
-    else:
-        url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
-
-    return f'<a href="{url}" target="_blank">{sid}</a>'
-
-
-def make_name_link(row):
-    sid = row["代號_raw"]
-    name = row["名稱/成份股"]
-
-    url = None
-
-    if str(sid).startswith("00"):
-        url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
-
-    if url:
-        return f'<a href="{url}" target="_blank">{name}</a>'
-
-    return name
-
-
-df["名稱/成份股"] = df.apply(make_name_link, axis=1)
-df["代號/K線"] = df.apply(make_id_link, axis=1)
-
-df = df.drop(columns=["代號_raw"])
 
 if df.empty:
     st.error("❌ 抓不到資料")
@@ -235,10 +231,7 @@ else:
         "漲跌": "{:+,.2f}",
         "漲幅%": "{:+,.2f}%",
         "K": "{:.2f}",
-        "D": "{:.2f}",
-        "MA5": "{:.2f}",
-        "MA10": "{:.2f}",
-        "MA20": "{:.2f}"
+        "D": "{:.2f}"
     })
 
     def color(val):
@@ -246,34 +239,7 @@ else:
 
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
-    def apply_price(row):
-        diff = df.loc[row.name, "漲跌"]
-        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
-
-    styled = styled.apply(apply_price, subset=["價格"], axis=1)
-
-    def color_ma(val, price):
-        return "color:red" if val < price else "color:green" if val > price else ""
-
-    def apply_ma(row):
-        price = df.loc[row.name, "價格"]
-        return [
-            color_ma(row["MA5"], price),
-            color_ma(row["MA10"], price),
-            color_ma(row["MA20"], price)
-        ]
-
-    styled = styled.apply(apply_ma, subset=["MA5", "MA10", "MA20"], axis=1)
-
-    st.markdown("""
-<style>
-table { width: 100% !important; table-layout: auto; }
-td, th { white-space: nowrap; font-size: 14px; }
-div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
-</style>
-""", unsafe_allow_html=True)
-
-    st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
+    st.dataframe(styled, use_container_width=True)
 
 time.sleep(30)
 st.rerun()

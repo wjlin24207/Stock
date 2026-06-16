@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已為您優化版面：移除庫存區，並將即時大盤價格指標移至走勢圖左側，視覺更專注。")
+st.sidebar.info("已為您調整 Y 軸位置：標籤已移至左側，方便與左側價格指標進行對齊。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -201,13 +201,13 @@ if "twii_base_loaded" not in st.session_state:
 
 
 # ==========================================
-# ===== 5. 網頁版面布局 (全新優化簡化) =====
+# ===== 5. 網頁版面布局 =====
 # ==========================================
 
 st.title("📊 策略監控儀表板（專業版）")
 st.markdown("---")
 
-# --- 第一層：大盤走勢與指標區 (寬度配置 1:3，讓左邊放價格數據，右邊放走勢圖) ---
+# --- 第一層：大盤走勢與指標區 (寬度配置 1:3) ---
 st.subheader("📈 當日加權指數即時走勢")
 trend_col_left, trend_col_right = st.columns([1, 3])
 
@@ -221,7 +221,6 @@ with trend_col_left:
         diff_val = z_val - y_val
         pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
         
-        # 使用自訂 HTML 強化大盤數據顯示效果
         color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
         st.markdown(f"""
         <div style="background-color:rgba(255,255,255,0.05); padding:15px; border-radius:10px; border-left: 5px solid {color_code}; margin-bottom:10px;">
@@ -277,7 +276,8 @@ with trend_col_right:
             margin=dict(l=10, r=10, t=10, b=10),
             height=280,
             xaxis=dict(nticks=10, tickangle=0),
-            yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="right"),
+            # ✅ 關鍵修正：將 side 參數改為 "left"，讓 Y 軸數字標籤移動到左側
+            yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="left"),
             template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
         )
         st.plotly_chart(fig, use_container_width=True)

@@ -203,7 +203,7 @@ st.components.v1.html("""
   new TradingView.widget({
     "width": "100%",
     "height": 500,
-    "symbol": "TVC:TWII",
+    "symbol": "TWSE:TAIEX",
     "interval": "5",
     "timezone": "Asia/Taipei",
     "theme": "light",

@@ -5,11 +5,20 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
+import streamlit.components.v1 as components   # ✅ 新增
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="KD監控儀表板", layout="wide")
 st.title("📊 策略監控儀表板（專業版）")
+
+# ✅ ===== 新增 Yahoo 大盤區塊 =====
+st.subheader("📊 Yahoo 台股大盤")
+components.iframe(
+    "https://tw.stock.yahoo.com/tw-market",
+    height=600,
+    scrolling=True
+)
 
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
@@ -180,19 +189,14 @@ for sid in target_stocks:
 
 df = pd.DataFrame(rows)
 
-
 df = df.rename(columns={
     "代號": "代號/K線",
     "名稱": "名稱/成份股"
 })
 
-
-# ✅ 保留原始代號（關鍵）
 df["代號_raw"] = df["代號/K線"]
 
-# ===== ✅ 代號 → K線 =====
 def make_id_link(row):
-
     sid = row["代號_raw"]
 
     if sid == "^TWII":
@@ -203,33 +207,25 @@ def make_id_link(row):
     return f'<a href="{url}" target="_blank">{sid}</a>'
 
 
-# ===== ✅ 名稱 → ETF成分股 =====
-
 def make_name_link(row):
     sid = row["代號_raw"]
     name = row["名稱/成份股"]
 
-    # ✅ 先設預設值
     url = None
 
     if str(sid).startswith("00"):
         url = f"https://www.moneydj.com/ETF/X/Basic/Basic0007.xdjhtm?etfid={sid}.TW"
 
-    # ✅ 有 URL 才做連結
     if url:
         return f'<a href="{url}" target="_blank">{name}</a>'
 
     return name
 
 
-
 df["名稱/成份股"] = df.apply(make_name_link, axis=1)
 df["代號/K線"] = df.apply(make_id_link, axis=1)
 
-
-# 刪掉暫存欄位
 df = df.drop(columns=["代號_raw"])
-
 
 if df.empty:
     st.error("❌ 抓不到資料")
@@ -278,7 +274,6 @@ div[data-testid="stMarkdownContainer"] { overflow-x: auto; }
 """, unsafe_allow_html=True)
 
     st.markdown(styled.to_html(escape=False), unsafe_allow_html=True)
-
 
 time.sleep(30)
 st.rerun()

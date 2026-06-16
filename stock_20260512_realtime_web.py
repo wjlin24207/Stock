@@ -265,20 +265,20 @@ pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
 
 color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
 
-# 顯示橫式列的 HTML 排版
+# 🌟 這裡已修改：專為手機網頁優化的彈性流動排版（Flexbox with wrap）
 st.markdown(f"""
-<div style="background-color:rgba(255,255,255,0.03); padding:10px 20px; border-radius:8px; margin-bottom:15px; display:flex; gap:40px; align-items:center;">
-    <div style="display:flex; align-items:baseline; gap:10px;">
+<div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
+    <div style="flex:1; min-width:140px; white-space:nowrap;">
         <span style="font-size:14px; color:#888;">加權指數:</span>
-        <span style="font-size:28px; color:{color_code}; font-weight:bold;">{z_val:,.2f}</span>
+        <span style="font-size:24px; color:{color_code}; font-weight:bold; margin-left:6px;">{z_val:,.2f}</span>
     </div>
-    <div style="display:flex; align-items:baseline; gap:10px;">
+    <div style="flex:1; min-width:180px; white-space:nowrap;">
         <span style="font-size:14px; color:#888;">漲跌:</span>
-        <span style="font-size:20px; color:{color_code}; font-weight:bold;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
+        <span style="font-size:18px; color:{color_code}; font-weight:bold; margin-left:6px;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
     </div>
-    <div style="display:flex; align-items:baseline; gap:10px;">
+    <div style="flex:1; min-width:140px; white-space:nowrap;">
         <span style="font-size:14px; color:#888;">成交量:</span>
-        <span style="font-size:20px; color:#FFF; font-weight:bold;">{volume_display}</span>
+        <span style="font-size:18px; color:#FFF; font-weight:bold; margin-left:6px;">{volume_display}</span>
     </div>
 </div>
 """, unsafe_allow_html=True)

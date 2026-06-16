@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="KD監控儀表板 (簡化走勢版)", layout="wide")
+st.set_page_config(page_title="KD監控儀表板 (對稱走勢版)", layout="wide")
 
 # 初始化大盤歷史走勢紀錄器
 if "twii_history" not in st.session_state:
@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已為您調整 Y 軸位置：標籤已移至左側，方便與左側價格指標進行對齊。")
+st.sidebar.info("已為您啟用「昨收對稱 Y 軸」：圖表中心點精準鎖定為昨日收盤價，上下震盪幅度絕對對稱。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -217,7 +217,7 @@ twii_live = prices.get("^TWII")
 with trend_col_left:
     if twii_live:
         z_val = float(twii_live.get('z', twii_live.get('y', 0)))
-        y_val = float(twii_live.get('y', 0))
+        y_val = float(twii_live.get('y', 0)) # 昨收價
         diff_val = z_val - y_val
         pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
         
@@ -231,13 +231,14 @@ with trend_col_left:
         """, unsafe_allow_html=True)
     else:
         st.metric(label="加權指數最新點數", value="讀取中...")
+        y_val = 0
         
     st.metric(label="預估成交量", value="3,850 億")
     st.metric(label="市場信心指標", value="多方控盤")
 
 # 【右側：折線圖本體】
 with trend_col_right:
-    if twii_live:
+    if twii_live and y_val > 0:
         current_point = twii_live.get('z', '-')
         if current_point in ['-', '', None]:
             current_point = twii_live.get('y', '0')
@@ -257,8 +258,31 @@ with trend_col_right:
         
         st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
         
+        # 📊 計算昨收對稱範圍的關鍵邏輯
+        max_val = st.session_state.twii_history["點數"].max()
+        min_val = st.session_state.twii_history["點數"].min()
+        
+        # 計算今天震盪偏離昨收的最大距離
+        max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
+        
+        # 如果大盤完全沒動，給一個基本震盪幅度 (如昨收的 0.1%) 避免圖表 Y 軸壓扁
+        if max_deviation == 0:
+            max_deviation = y_val * 0.001
+            
+        # 設定絕對對稱的上限與下限
+        y_limit_top = y_val + (max_deviation * 1.05) # 微調 1.05 留出一點點邊緣空間
+        y_limit_bottom = y_val - (max_deviation * 1.05)
+        
         # 繪圖
         fig = go.Figure()
+        
+        # 加上一條平盤(昨收)的灰色虛線作為視覺中心基準
+        fig.add_shape(
+            type="line", x0=0, y0=y_val, x1=1, y1=y_val,
+            xref="paper", yref="y",
+            line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
+        )
+        
         fig.add_trace(go.Scatter(
             x=st.session_state.twii_history["時間"],
             y=st.session_state.twii_history["點數"],
@@ -266,23 +290,20 @@ with trend_col_right:
             name='大盤即時走勢',
             line=dict(color='#FF4B4B', width=2),
             fill='tozeroy',
-            fillcolor='rgba(255, 75, 75, 0.03)'
+            fillcolor='rgba(255, 75, 75, 0.02)'
         ))
-        
-        y_max = st.session_state.twii_history["點數"].max() * 1.0005
-        y_min = st.session_state.twii_history["點數"].min() * 0.9995
         
         fig.update_layout(
             margin=dict(l=10, r=10, t=10, b=10),
             height=280,
             xaxis=dict(nticks=10, tickangle=0),
-            # ✅ 關鍵修正：將 side 參數改為 "left"，讓 Y 軸數字標籤移動到左側
-            yaxis=dict(range=[y_min, y_max], tickformat=",.0f", side="left"),
+            # ✅ 精準設定對稱邊界值
+            yaxis=dict(range=[y_limit_bottom, y_limit_top], tickformat=",.0f", side="left"),
             template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("正在接收大盤即時數據...")
+        st.info("正在接收大盤即時數據並計算對稱軸...")
 
 
 st.markdown("---")

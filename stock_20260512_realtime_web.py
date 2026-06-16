@@ -154,7 +154,8 @@ def process_kd_logic(stock_id, live_info, hist_df):
         elif k > 80:
             signal.append("🔥超買")
 
-        if ma5_y <= ma10_y coaching_t and ma5_t > ma10_t:
+        # 🛠️ 修正：移除多打的 coaching_t，回覆正常語法
+        if ma5_y <= ma10_y and ma5_t > ma10_t:
             signal.append("✨黃金")
         elif ma5_y >= ma10_y and ma5_t < ma10_t:
             signal.append("❌死亡")
@@ -328,7 +329,7 @@ if not st.session_state.twii_history.empty and y_val > 0:
         line=dict(color="rgba(128, 128, 128, 0.5)", width=1.5, dash="dash")
     )
     
-    # 🛠️ 核心修正：利用 line.color 陣列綁定 y 軸數值，並透過 colorscale 實現平盤線（cmid）上下動態變色
+    # 核心修正：利用 line.color 陣列綁定 y 軸數值，並透過 colorscale 實現平盤線（cmid）上下動態變色
     fig.add_trace(go.Scatter(
         x=st.session_state.twii_history["時間"],
         y=st.session_state.twii_history["點數"],
@@ -338,7 +339,7 @@ if not st.session_state.twii_history.empty and y_val > 0:
             width=2.5,
             color=st.session_state.twii_history["點數"],  # 顏色深度綁定點數值
             colorscale=[[0, '#00A86B'], [0.5, '#888888'], [1, '#FF4B4B']],  # 綠 -> 灰 -> 紅
-            cmid=y_val  # 🛠️ 將色階的「正中心點」綁定在平盤價（昨收），高於變紅、低於變綠
+            cmid=y_val  # 將色階的「正中心點」綁定在平盤價（昨收），高於變紅、低於變綠
         )
     ))
     

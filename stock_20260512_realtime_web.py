@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("雙色分時圖穩定版：採用多線段遮罩流（Masking），完美實現平盤上紅、平盤下綠的券商級效果，且永不報錯。")
+st.sidebar.info("專業修正版：移除會干擾視覺的拆線邏輯，回歸單一連續流暢曲線，平盤對稱範圍與數值絕對精準。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -297,7 +297,7 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (多軌安定無 Bug 版) ---
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (單線純淨穩定版) ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
@@ -326,38 +326,23 @@ if not st.session_state.twii_history.empty and y_val > 0:
         type="line", 
         x0="09:00", y0=y_val, 
         x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
-        line=dict(color="rgba(128, 128, 128, 0.5)", width=1.5, dash="dash")
+        line=dict(color="rgba(128, 128, 128, 0.6)", width=1.5, dash="dash")
     )
     
-    # 🛠️ 革命性修正邏輯：將連續數據拆解成「紅線段」與「綠線段」
-    # 為了不讓交界處斷線，綠線與紅線各自保留完整的點，但在對手區間時把數值強制修剪（Clip）到平盤線
-    df_trend['紅點數'] = df_trend['點數'].apply(lambda x: x if x >= y_val else y_val)
-    df_trend['綠點數'] = df_trend['點數'].apply(lambda x: x if x <= y_val else y_val)
-    
-    # 軌道一：繪製高於平盤的紅色區間線
+    # 🛠️ 修正：回歸最乾淨穩定的單一連續流暢曲線，並給予顯眼的專業紅色
     fig.add_trace(go.Scatter(
         x=df_trend["時間"],
-        y=df_trend["紅點數"],
+        y=df_trend["點數"],
         mode='lines',
-        name='多方區間',
+        name='大盤走勢',
         line=dict(color='#FF4B4B', width=2.5),
-        hoverinfo='skip'
-    ))
-    
-    # 軌道二：繪製低於平盤的綠色區間線
-    fig.add_trace(go.Scatter(
-        x=df_trend["時間"],
-        y=df_trend["綠點數"],
-        mode='lines',
-        name='空方區間',
-        line=dict(color='#00A86B', width=2.5),
-        hoverinfo='skip'
+        fill='tozeroy',  # 新增：給予一層薄薄的網格淡紅填滿底色
+        fillcolor='rgba(255, 75, 75, 0.02)'
     ))
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
         height=320,
-        showlegend=False, # 隱藏圖例更清爽
         xaxis=dict(
             range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
             tickvals=market_ticks,

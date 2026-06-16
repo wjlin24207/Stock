@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("三竹優化版：已在對稱 Y 軸邊界加上 15% 留白安全間距，優化折線展示視覺效果。")
+st.sidebar.info("雙色分時圖版：折線高於平盤自動變紅、低於平盤自動變綠，完美還原專業看盤視覺。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -154,7 +154,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
         elif k > 80:
             signal.append("🔥超買")
 
-        if ma5_y <= ma10_y and ma5_t > ma10_t:
+        if ma5_y <= ma10_y coaching_t and ma5_t > ma10_t:
             signal.append("✨黃金")
         elif ma5_y >= ma10_y and ma5_t < ma10_t:
             signal.append("❌死亡")
@@ -297,23 +297,20 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含上下留白防邊界擠壓機制) ---
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含雙色動態切換機制) ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
     
-    # 計算今日走勢與平盤昨收的最大偏離幅度
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     if max_deviation == 0:
         max_deviation = y_val * 0.001
         
-    # 🛠️ 關鍵優化：加上 1.15 的係數，為 Y 軸最高與最低點往外預留 15% 的空間，使折線起伏更流暢好看
     y_limit_top = y_val + (max_deviation * 1.15)
     y_limit_bottom = y_val - (max_deviation * 1.15)
     
-    # 依據留白後的邊界重新均分對稱刻度五條線
     mid_top = y_val + ((max_deviation * 1.15) / 2.0)
     mid_bottom = y_val - ((max_deviation * 1.15) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
@@ -328,17 +325,21 @@ if not st.session_state.twii_history.empty and y_val > 0:
         type="line", 
         x0="09:00", y0=y_val, 
         x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
-        line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
+        line=dict(color="rgba(128, 128, 128, 0.5)", width=1.5, dash="dash")
     )
     
+    # 🛠️ 核心修正：利用 line.color 陣列綁定 y 軸數值，並透過 colorscale 實現平盤線（cmid）上下動態變色
     fig.add_trace(go.Scatter(
         x=st.session_state.twii_history["時間"],
         y=st.session_state.twii_history["點數"],
         mode='lines',
         name='大盤即時走勢',
-        line=dict(color='#FF4B4B', width=2),
-        fill='tozeroy',
-        fillcolor='rgba(255, 75, 75, 0.02)'
+        line=dict(
+            width=2.5,
+            color=st.session_state.twii_history["點數"],  # 顏色深度綁定點數值
+            colorscale=[[0, '#00A86B'], [0.5, '#888888'], [1, '#FF4B4B']],  # 綠 -> 灰 -> 紅
+            cmid=y_val  # 🛠️ 將色階的「正中心點」綁定在平盤價（昨收），高於變紅、低於變綠
+        )
     ))
     
     fig.update_layout(

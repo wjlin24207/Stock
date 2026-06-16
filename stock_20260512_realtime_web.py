@@ -208,7 +208,7 @@ st.title("📊 策略監控儀表板（專業版）")
 st.markdown("---")
 
 # --- 第一層：大盤即時橫式資訊列 + 對稱分時圖 ---
-st.subheader("📈 當日加權指數即時走勢")
+st.subheader("📈 加權指數即時走勢")
 
 twii_live = prices.get("^TWII")
 
@@ -270,7 +270,7 @@ st.markdown(f"""
 <div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
     <div style="flex:1; min-width:140px; white-space:nowrap;">
         <span style="font-size:14px; color:#888;">加權指數:</span>
-        <span style="font-size:24px; color:{color_code}; font-weight:bold; margin-left:6px;">{z_val:,.2f}</span>
+        <span style="font-size:18px; color:{color_code}; font-weight:bold; margin-left:6px;">{z_val:,.2f}</span>
     </div>
     <div style="flex:1; min-width:180px; white-space:nowrap;">
         <span style="font-size:14px; color:#888;">漲跌:</span>

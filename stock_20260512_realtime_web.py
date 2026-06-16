@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("雙色分時圖版：折線高於平盤自動變紅、低於平盤自動變綠，完美還原專業看盤視覺。")
+st.sidebar.info("雙色分時圖穩定版：採用多線段遮罩流（Masking），完美實現平盤上紅、平盤下綠的券商級效果，且永不報錯。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -154,7 +154,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
         elif k > 80:
             signal.append("🔥超買")
 
-        # 🛠️ 修正：移除多打的 coaching_t，回覆正常語法
         if ma5_y <= ma10_y and ma5_t > ma10_t:
             signal.append("✨黃金")
         elif ma5_y >= ma10_y and ma5_t < ma10_t:
@@ -298,12 +297,13 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含雙色動態切換機制) ---
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (多軌安定無 Bug 版) ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
-    max_val = st.session_state.twii_history["點數"].max()
-    min_val = st.session_state.twii_history["點數"].min()
+    df_trend = st.session_state.twii_history.copy()
+    max_val = df_trend["點數"].max()
+    min_val = df_trend["點數"].min()
     
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     if max_deviation == 0:
@@ -317,11 +317,11 @@ if not st.session_state.twii_history.empty and y_val > 0:
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
     market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
-    latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
+    latest_time_str = df_trend["時間"].iloc[-1]
     
     fig = go.Figure()
     
-    # 昨收基準水平虛線
+    # 昨收基準水平平盤中心線
     fig.add_shape(
         type="line", 
         x0="09:00", y0=y_val, 
@@ -329,23 +329,35 @@ if not st.session_state.twii_history.empty and y_val > 0:
         line=dict(color="rgba(128, 128, 128, 0.5)", width=1.5, dash="dash")
     )
     
-    # 核心修正：利用 line.color 陣列綁定 y 軸數值，並透過 colorscale 實現平盤線（cmid）上下動態變色
+    # 🛠️ 革命性修正邏輯：將連續數據拆解成「紅線段」與「綠線段」
+    # 為了不讓交界處斷線，綠線與紅線各自保留完整的點，但在對手區間時把數值強制修剪（Clip）到平盤線
+    df_trend['紅點數'] = df_trend['點數'].apply(lambda x: x if x >= y_val else y_val)
+    df_trend['綠點數'] = df_trend['點數'].apply(lambda x: x if x <= y_val else y_val)
+    
+    # 軌道一：繪製高於平盤的紅色區間線
     fig.add_trace(go.Scatter(
-        x=st.session_state.twii_history["時間"],
-        y=st.session_state.twii_history["點數"],
+        x=df_trend["時間"],
+        y=df_trend["紅點數"],
         mode='lines',
-        name='大盤即時走勢',
-        line=dict(
-            width=2.5,
-            color=st.session_state.twii_history["點數"],  # 顏色深度綁定點數值
-            colorscale=[[0, '#00A86B'], [0.5, '#888888'], [1, '#FF4B4B']],  # 綠 -> 灰 -> 紅
-            cmid=y_val  # 將色階的「正中心點」綁定在平盤價（昨收），高於變紅、低於變綠
-        )
+        name='多方區間',
+        line=dict(color='#FF4B4B', width=2.5),
+        hoverinfo='skip'
+    ))
+    
+    # 軌道二：繪製低於平盤的綠色區間線
+    fig.add_trace(go.Scatter(
+        x=df_trend["時間"],
+        y=df_trend["綠點數"],
+        mode='lines',
+        name='空方區間',
+        line=dict(color='#00A86B', width=2.5),
+        hoverinfo='skip'
     ))
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
         height=320,
+        showlegend=False, # 隱藏圖例更清爽
         xaxis=dict(
             range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
             tickvals=market_ticks,

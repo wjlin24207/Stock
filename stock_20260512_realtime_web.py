@@ -28,7 +28,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("已依需求微調：移除無關指標，將大盤即時數據改為橫式排列，並置於對稱走勢圖上方。")
+st.sidebar.info("已修正：對齊三竹大盤成交金額（億元）抓取邏輯。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -218,12 +218,16 @@ if twii_live:
     diff_val = z_val - y_val
     pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
     
-    # 撈取官方成交金額 (v 單位是百萬台幣，轉換成億元)
-    v_raw = twii_live.get('v', '0')
+    # 💡 【核心修正】撈取官方累積成交金額欄位 'g' (單位是元)
+    g_raw = twii_live.get('g', '0')
     try:
-        volume_e = float(v_raw) / 10000 if float(v_raw) > 0 else 3850.0  # 沒開盤或抓不到時用 3850 億當預估展示
+        # 將「元」轉換成「億元」
+        volume_e = float(g_raw) / 100000000
+        # 如果尚未開盤或抓到 0 則顯示歷史預估或維持 0
+        if volume_e == 0:
+            volume_e = 0.0
     except:
-        volume_e = 3850.0
+        volume_e = 0.0
 
     color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
     
@@ -239,8 +243,8 @@ if twii_live:
             <span style="font-size:20px; color:{color_code}; font-weight:bold;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
         </div>
         <div style="display:flex; align-items:baseline; gap:10px;">
-            <span style="font-size:14px; color:#888;">成交量 (預估/即時):</span>
-            <span style="font-size:20px; color:#FFF; font-weight:bold;">{volume_e:,.0f} 億</span>
+            <span style="font-size:14px; color:#888;">成交金額:</span>
+            <span style="font-size:20px; color:#FFF; font-weight:bold;">{volume_e:,.2f} 億</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -298,7 +302,7 @@ if twii_live:
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=5, b=10),
-        height=300, # 稍微拉高圖表寬度，全寬看起來更大氣
+        height=300, 
         xaxis=dict(nticks=12, tickangle=0),
         yaxis=dict(range=[y_limit_bottom, y_limit_top], tickformat=",.0f", side="left"),
         template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"

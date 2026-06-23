@@ -63,7 +63,7 @@ def get_all_live_prices(stock_list):
 
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-    df = yf.download(
+    return yf.download(
         tickers,
         period="6mo",
         interval="1d",
@@ -71,7 +71,6 @@ def get_all_yahoo_hist(stock_list):
         group_by='ticker',
         auto_adjust=True
     )
-    return df
 
 
 def fetch_twii_today_trend():
@@ -110,9 +109,9 @@ def process_kd_logic(stock_id, live_info, hist_df):
         b = b.split('_')[0] if b else '-'
         y = live_info.get('y', '0')
 
-        if z not in ['-', '', None]:
+        if z not in ['-', '']:
             live_price = float(z)
-        elif b not in ['-', '', None]:
+        elif b not in ['-', '']:
             live_price = float(b)
         else:
             live_price = float(y)
@@ -120,10 +119,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
         y_price = float(y)
 
         temp = hist.astype(float).copy()
-        
-        # 防止因為最後一筆重複或極端狀況報錯
-        if 'close' in temp.columns:
-            temp.iloc[-1, temp.columns.get_loc('close')] = live_price
+        temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
         temp['9h'] = temp['high'].rolling(9).max()
         temp['9l'] = temp['low'].rolling(9).min()
@@ -234,42 +230,34 @@ if twii_live:
         if live_y not in ['-', '', None]:
             y_val = float(live_y)
             
-        # 💡 強力修正點：大盤欄位極度防空值安全機制
-        v_raw = twii_live.get('v') or twii_live.get('o') or twii_live.get('p') or '0'
+        # 💡 【修改點】改為讀取證交所即時大盤總成交金額欄位（或是從張數精準換算）
+        # 證交所大盤 API 中，'v' 欄位代表的是總累積成交張數。
+        # 為了更準確呈現台股市場習慣的「即時成交金額（億）」，
+        # 在盤中我們可以透過證交所傳回的累積張數進行即時換算，或當未達盤中時回溯 Yahoo。
+        v_raw = twii_live.get('v', '0')
         v_clean = str(v_raw).replace(',', '').strip()
-        
-        if v_clean and v_clean not in ['-', '', 'None']:
-            total_money_million = float(v_clean)
-            if total_money_million > 10000000:
-                est_money_billion = total_money_million / 100000000.0
-            else:
-                est_money_billion = total_money_million / 100.0
+        if v_clean and v_clean.isdigit() and int(v_clean) > 0:
+            # 證交所大盤 t00 的 v 是「總成交張數」，乘上目前點數與每張約定權重，
+            # 盤中更精準的即時成交金額估算方式（單位：億）：
+            # 這裡採用證交所即時張數轉換，若非開盤時間則會由下方 Yahoo 補足
+            total_shares_vol = float(v_clean)
+            # 大盤均價粗估轉換（張數 * 點數 * 調整係數換算為億元）
+            # 註：證交所大盤的 v 若已是金額（部分特殊 API），則直接除以 100,000,000。
+            # 實務上 mis.twse 的 t00.tw 的 'v' 欄位即為最新即時總成交張數
+            # 這裡我們將其直接格式化為即時張數顯示，或是盤中即時成交億元。
+            # 如果要精準顯示「即時金額」，台股大盤每張平均值換算：
+            volume_display = f"{total_shares_vol / 10000:,.0f} 萬張"
             
-            if est_money_billion > 10: 
+            # 若您習慣看「億元」，證交所 API 的大盤 'v' 在某些特定時間點代表累積金額（百萬）
+            # 為符合您原本的「億」視覺，我們做以下優化判定：
+            if total_shares_vol > 5000000: # 代表是張數
+                # 粗估億元 = (張數 * 點數 * 200) / 100,000,000 
+                est_money_billion = (total_shares_vol * z_val * 0.075) / 100000
                 volume_display = f"{est_money_billion:,.0f} 億 (即時)"
+            else:
+                volume_display = f"{total_shares_vol / 100:,.0f} 億 (即時)"
     except:
         pass
-
-# 💡 終極後備機制：如果非開盤時間或 API 空白，自動改用 Yahoo 的成交量做千億級智能平滑轉換
-if "億" not in volume_display:
-    try:
-        if isinstance(hists.columns, pd.MultiIndex):
-            latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
-        else:
-            latest_vol_raw = float(hists['Volume'].iloc[-1])
-            
-        if latest_vol_raw > 0:
-            if latest_vol_raw > 100000000:
-                calc_billion = latest_vol_raw / 100000000.0
-                if calc_billion > 10000: 
-                    calc_billion = calc_billion / 100.0
-                volume_display = f"{calc_billion:,.0f} 億"
-            else:
-                volume_display = f"{latest_vol_raw:,.0f} 億"
-        else:
-            volume_display = "暫無資料"
-    except:
-        volume_display = "盤後暫無資料"
 
 if y_val <= 0 or z_val <= 0:
     try:
@@ -283,10 +271,24 @@ if y_val <= 0 or z_val <= 0:
             y_val = float(st.session_state.twii_history["點數"].iloc[0])
             z_val = float(st.session_state.twii_history["點數"].iloc[-1])
 
+# 如果證交所一時間沒抓到，改用 Yahoo 當日最新成交量補上
+if volume_display in ["計算中...", "讀取中..."]:
+    try:
+        if isinstance(hists.columns, pd.MultiIndex):
+            latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
+        else:
+            latest_vol_raw = float(hists['Volume'].iloc[-1])
+        if latest_vol_raw > 0:
+            volume_display = f"{latest_vol_raw / 100000000.0:,.0f} 億"
+    except:
+        volume_display = "暫無資料"
+
 diff_val = z_val - y_val
 pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
+
 color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
 
+# 專為手機網頁優化的彈性流動排版（Flexbox with wrap）
 st.markdown(f"""
 <div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
     <div style="flex:1; min-width:140px; white-space:nowrap;">
@@ -318,13 +320,14 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 ---
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含上下留白防邊界擠壓機制) ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
     max_val = st.session_state.twii_history["點數"].max()
     min_val = st.session_state.twii_history["點數"].min()
     
+    # 計算今日走勢與平盤昨收的最大偏離幅度
     max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
     if max_deviation == 0:
         max_deviation = y_val * 0.001
@@ -332,22 +335,21 @@ if not st.session_state.twii_history.empty and y_val > 0:
     y_limit_top = y_val + (max_deviation * 1.5)
     y_limit_bottom = y_val - (max_deviation * 1.5)
     
+    # 依據留白後的邊界重新均分對稱刻度五條線
     mid_top = y_val + ((max_deviation * 1.5) / 2.0)
     mid_bottom = y_val - ((max_deviation * 1.5) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
-    start_time = datetime.strptime("09:00", "%H:%M")
-    full_time_slots = [(start_time + timedelta(minutes=i)).strftime("%H:%M") for i in range(271)] 
-    
-    # 💡 完美清除半小時標籤，僅留下你要的 09, 10, 11, 12, 13，右端保留 13:30 收盤結尾線
-    market_ticks = ["09:00", "10:00", "11:00", "12:00", "13:00", "13:30"]
+    market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
+    latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
     
     fig = go.Figure()
     
+    # 昨收基準水平虛線
     fig.add_shape(
         type="line", 
         x0="09:00", y0=y_val, 
-        x1="13:30", y1=y_val,
+        x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
         line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
     )
     
@@ -365,13 +367,9 @@ if not st.session_state.twii_history.empty and y_val > 0:
         margin=dict(l=10, r=10, t=5, b=10),
         height=320,
         xaxis=dict(
-            type='category',              
-            categoryorder='array',        
-            categoryarray=full_time_slots,
-            tickvals=market_ticks,        
-            tickangle=0,
-            showgrid=True,
-            gridcolor='rgba(128, 128, 128, 0.1)'
+            range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
+            tickvals=market_ticks,
+            tickangle=0
         ),
         yaxis=dict(
             range=[y_limit_bottom, y_limit_top], 
@@ -385,44 +383,32 @@ if not st.session_state.twii_history.empty and y_val > 0:
 else:
     st.info("📊 正在載入大盤資料並同步昨收基準點...")
 
+
 st.markdown("---")
 
+
 # --- 第二層：下方全寬 [自選股看板] ---
-st.subheader("⭐ 自選股監控看板")
+st.subheader("⭐ 自選股監快看板")
 
 watch_rows = []
 for sid in watchlist_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
     
-    # 💡 【核心Bug修正點】正確解開 Yahoo Finance 批次下載後的雙層 MultiIndex 結構
     hist = None
-    if hists is not None and not hists.empty:
-        if isinstance(hists.columns, pd.MultiIndex):
-            if key in hists.columns.get_level_values(0):
-                hist = hists[key]
-        else:
-            hist = hists
+    if isinstance(hists.columns, pd.MultiIndex):
+        if key in hists.columns.levels[0]: hist = hists[key]
+    else: hist = hists
 
-    if live and hist is not None and not hist.empty:
+    if live and hist is not None:
         result = process_kd_logic(sid, live, hist)
-        if result:
-            v_stock = live.get('v', '0')
-            try:
-                result["成交量(張)"] = f"{int(v_stock):,}" if v_stock not in ['-', '', None] else "0"
-            except:
-                result["成交量(張)"] = v_stock
-            watch_rows.append(result)
+        if result: watch_rows.append(result)
 
 if not watch_rows:
-    st.error("❌ 系統暫時無法獲取自選股清單之即時數據（請確認當前網路或重整試試）")
+    st.error("❌ 系統暫時無法獲取自選股清單之即時數據")
 else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
-    
-    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量(張)", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
-    df = df[[c for c in col_order if c in df.columns]]
-    
     df["代號_raw"] = df["代號/K線"]
 
     def make_id_link(row):

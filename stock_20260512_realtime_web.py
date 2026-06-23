@@ -330,16 +330,15 @@ if not st.session_state.twii_history.empty and y_val > 0:
     mid_bottom = y_val - ((max_deviation * 1.5) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
-    # 💡 【核心修正點】建立全天每分鐘的固定刻度底圖（從 09:00 直到 13:30）
-    # 這樣做能強制 Plotly 將時間當成固定長度的軌道，不會自動收縮或擴展
+    # 建立全天每分鐘的固定刻度底圖（從 09:00 直到 13:30）
     start_time = datetime.strptime("09:00", "%H:%M")
-    full_time_slots = [(start_time + timedelta(minutes=i)).strftime("%H:%M") for i in range(271)] # 4.5小時共271分鐘
+    full_time_slots = [(start_time + timedelta(minutes=i)).strftime("%H:%M") for i in range(271)] 
     
-    market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
+    # 💡【修正點】移除半小時標籤，僅保留整點整時刻度，並包含收盤 13:30 作為右側結尾
+    market_ticks = ["09:00", "10:00", "11:00", "12:00", "13:00", "13:30"]
     
     fig = go.Figure()
     
-    # 昨收基準水平虛線 (固定拉滿到 13:30)
     fig.add_shape(
         type="line", 
         x0="09:00", y0=y_val, 
@@ -361,10 +360,10 @@ if not st.session_state.twii_history.empty and y_val > 0:
         margin=dict(l=10, r=10, t=5, b=10),
         height=320,
         xaxis=dict(
-            type='category',              # 💡 強制指定類別型態，避免 Plotly 自動做時間拉伸
-            categoryorder='array',        # 💡 指定依據我們自訂的陣列順序排列
-            categoryarray=full_time_slots,# 💡 載入包含 09:00 到 13:30 的完整空軌道
-            tickvals=market_ticks,        # 僅顯示主要整點/半整點的標籤
+            type='category',              
+            categoryorder='array',        
+            categoryarray=full_time_slots,
+            tickvals=market_ticks,        # 💡 將處理後的乾淨刻度清單代入
             tickangle=0,
             showgrid=True,
             gridcolor='rgba(128, 128, 128, 0.1)'

@@ -230,13 +230,11 @@ if twii_live:
         if live_y not in ['-', '', None]:
             y_val = float(live_y)
             
-        # 💡 相容證交所多個潛在大盤金額/成交量欄位 (v=金額, o=總量, p=總金額)
         v_raw = twii_live.get('v') or twii_live.get('o') or twii_live.get('p') or '0'
         v_clean = str(v_raw).replace(',', '').strip()
         
         if v_clean and v_clean not in ['-', '', 'None'] and float(v_clean) > 0:
             total_money_million = float(v_clean)
-            # 如果證交所傳回的值已經大於千萬，代表單位可能是「元」而不是「百萬」，做智能縮放防錯
             if total_money_million > 10000000:
                 est_money_billion = total_money_million / 100000000.0
             else:
@@ -247,7 +245,6 @@ if twii_live:
     except:
         pass
 
-# 💡 強力後備機制：只要不是帶有“億”字樣的成功解析，一律強制啟動 Yahoo 數據庫救援
 if "億" not in volume_display:
     try:
         if isinstance(hists.columns, pd.MultiIndex):
@@ -256,7 +253,6 @@ if "億" not in volume_display:
             latest_vol_raw = float(hists['Volume'].iloc[-1])
             
         if latest_vol_raw > 0:
-            # 當大盤指數逼近 5 萬點時，Yahoo 的 Volume 單位如果呈現的是金額或股數，依常態進行智能縮放判定
             if latest_vol_raw > 100000000:
                 calc_billion = latest_vol_raw / 100000000.0
                 if calc_billion > 10000: 
@@ -283,10 +279,8 @@ if y_val <= 0 or z_val <= 0:
 
 diff_val = z_val - y_val
 pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
-
 color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
 
-# 彈性流動排版
 st.markdown(f"""
 <div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
     <div style="flex:1; min-width:140px; white-space:nowrap;">
@@ -336,15 +330,15 @@ if not st.session_state.twii_history.empty and y_val > 0:
     mid_bottom = y_val - ((max_deviation * 1.5) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
+    # 💡 定義標準台股開盤時間區段，並強制將區間鎖死在 09:00 至 13:30 之間
     market_ticks = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
-    latest_time_str = st.session_state.twii_history["時間"].iloc[-1]
     
     fig = go.Figure()
     
     fig.add_shape(
         type="line", 
         x0="09:00", y0=y_val, 
-        x1=latest_time_str if latest_time_str > "13:30" else "13:30", y1=y_val,
+        x1="13:30", y1=y_val,
         line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
     )
     
@@ -362,7 +356,7 @@ if not st.session_state.twii_history.empty and y_val > 0:
         margin=dict(l=10, r=10, t=5, b=10),
         height=320,
         xaxis=dict(
-            range=["09:00", latest_time_str if latest_time_str > "13:30" else "13:30"],
+            range=["09:00", "13:30"],  # 💡【核心修正】固定區間，不再根據 latest_time_str 動態延伸
             tickvals=market_ticks,
             tickangle=0
         ),
@@ -396,7 +390,6 @@ for sid in watchlist_stocks:
     if live and hist is not None:
         result = process_kd_logic(sid, live, hist)
         if result:
-            # 💡 額外注入成交量欄位（個股 v 為累積張數）
             v_stock = live.get('v', '0')
             try:
                 result["成交量(張)"] = f"{int(v_stock):,}" if v_stock not in ['-', '', None] else "0"
@@ -410,7 +403,6 @@ else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     
-    # 重新排列欄位順序，將成交量排在漲幅%後面
     col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量(張)", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
     df = df[[c for c in col_order if c in df.columns]]
     

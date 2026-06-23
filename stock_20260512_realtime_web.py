@@ -63,7 +63,7 @@ def get_all_live_prices(stock_list):
 
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-    return yf.download(
+    df = yf.download(
         tickers,
         period="6mo",
         interval="1d",
@@ -71,6 +71,7 @@ def get_all_yahoo_hist(stock_list):
         group_by='ticker',
         auto_adjust=True
     )
+    return df
 
 
 def fetch_twii_today_trend():
@@ -109,9 +110,9 @@ def process_kd_logic(stock_id, live_info, hist_df):
         b = b.split('_')[0] if b else '-'
         y = live_info.get('y', '0')
 
-        if z not in ['-', '']:
+        if z not in ['-', '', None]:
             live_price = float(z)
-        elif b not in ['-', '']:
+        elif b not in ['-', '', None]:
             live_price = float(b)
         else:
             live_price = float(y)
@@ -119,7 +120,10 @@ def process_kd_logic(stock_id, live_info, hist_df):
         y_price = float(y)
 
         temp = hist.astype(float).copy()
-        temp.iloc[-1, temp.columns.get_loc('close')] = live_price
+        
+        # 防止因為最後一筆重複或極端狀況報錯
+        if 'close' in temp.columns:
+            temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
         temp['9h'] = temp['high'].rolling(9).max()
         temp['9l'] = temp['low'].rolling(9).min()
@@ -230,10 +234,11 @@ if twii_live:
         if live_y not in ['-', '', None]:
             y_val = float(live_y)
             
+        # 💡 強力修正點：大盤欄位極度防空值安全機制
         v_raw = twii_live.get('v') or twii_live.get('o') or twii_live.get('p') or '0'
         v_clean = str(v_raw).replace(',', '').strip()
         
-        if v_clean and v_clean not in ['-', '', 'None'] and float(v_clean) > 0:
+        if v_clean and v_clean not in ['-', '', 'None']:
             total_money_million = float(v_clean)
             if total_money_million > 10000000:
                 est_money_billion = total_money_million / 100000000.0
@@ -245,6 +250,7 @@ if twii_live:
     except:
         pass
 
+# 💡 終極後備機制：如果非開盤時間或 API 空白，自動改用 Yahoo 的成交量做千億級智能平滑轉換
 if "億" not in volume_display:
     try:
         if isinstance(hists.columns, pd.MultiIndex):
@@ -312,7 +318,7 @@ if twii_live and z_val > 0:
         else:
             st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
 
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 (含上下留白防邊界擠壓機制) ---
+# --- 6. 繪製精準 1:1 三竹對稱走勢圖 ---
 if not st.session_state.twii_history.empty and y_val > 0:
     st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
     
@@ -330,11 +336,10 @@ if not st.session_state.twii_history.empty and y_val > 0:
     mid_bottom = y_val - ((max_deviation * 1.5) / 2.0)
     custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
     
-    # 建立全天每分鐘的固定刻度底圖（從 09:00 直到 13:30）
     start_time = datetime.strptime("09:00", "%H:%M")
     full_time_slots = [(start_time + timedelta(minutes=i)).strftime("%H:%M") for i in range(271)] 
     
-    # 💡【修正點】移除半小時標籤，僅保留整點整時刻度，並包含收盤 13:30 作為右側結尾
+    # 💡 完美清除半小時標籤，僅留下你要的 09, 10, 11, 12, 13，右端保留 13:30 收盤結尾線
     market_ticks = ["09:00", "10:00", "11:00", "12:00", "13:00", "13:30"]
     
     fig = go.Figure()
@@ -363,7 +368,7 @@ if not st.session_state.twii_history.empty and y_val > 0:
             type='category',              
             categoryorder='array',        
             categoryarray=full_time_slots,
-            tickvals=market_ticks,        # 💡 將處理後的乾淨刻度清單代入
+            tickvals=market_ticks,        
             tickangle=0,
             showgrid=True,
             gridcolor='rgba(128, 128, 128, 0.1)'
@@ -390,12 +395,16 @@ for sid in watchlist_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
     
+    # 💡 【核心Bug修正點】正確解開 Yahoo Finance 批次下載後的雙層 MultiIndex 結構
     hist = None
-    if isinstance(hists.columns, pd.MultiIndex):
-        if key in hists.columns.levels[0]: hist = hists[key]
-    else: hist = hists
+    if hists is not None and not hists.empty:
+        if isinstance(hists.columns, pd.MultiIndex):
+            if key in hists.columns.get_level_values(0):
+                hist = hists[key]
+        else:
+            hist = hists
 
-    if live and hist is not None:
+    if live and hist is not None and not hist.empty:
         result = process_kd_logic(sid, live, hist)
         if result:
             v_stock = live.get('v', '0')
@@ -406,7 +415,7 @@ for sid in watchlist_stocks:
             watch_rows.append(result)
 
 if not watch_rows:
-    st.error("❌ 系統暫時無法獲取自選股清單之即時數據")
+    st.error("❌ 系統暫時無法獲取自選股清單之即時數據（請確認當前網路或重整試試）")
 else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})

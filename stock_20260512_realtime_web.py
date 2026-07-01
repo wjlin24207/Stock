@@ -271,25 +271,6 @@ if twii_live:
     except:
         pass
 
-if "億" not in volume_display:
-    try:
-        if isinstance(hists.columns, pd.MultiIndex):
-            latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
-        else:
-            latest_vol_raw = float(hists['Volume'].iloc[-1])
-            
-        if latest_vol_raw > 0:
-            if latest_vol_raw > 100000000:
-                calc_billion = latest_vol_raw / 100000000.0
-                if calc_billion > 10000: 
-                    calc_billion = calc_billion / 100.0
-                volume_display = f"{calc_billion:,.0f} 億"
-            else:
-                volume_display = f"{latest_vol_raw:,.0f} 億"
-        else:
-            volume_display = "暫無資料"
-    except:
-        volume_display = "盤後暫無資料"
 
 if y_val <= 0 or z_val <= 0:
     try:
@@ -318,7 +299,7 @@ st.markdown(f"""
         <span style="font-size:22px; color:{color_code}; font-weight:bold; margin-left:6px;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
     </div>
     <div style="flex:1; min-width:140px; white-space:nowrap;">
-        <span style="font-size:14px; color:#888;">成交量:</span>
+        <span style="font-size:14px; color:#888;">成交金額:</span>
         <span style="font-size:22px; color:{color_code}; font-weight:bold; margin-left:6px;">{volume_display}</span>
     </div>
 </div>

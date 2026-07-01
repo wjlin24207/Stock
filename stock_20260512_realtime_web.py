@@ -39,30 +39,36 @@ def get_twse_market_amount():
     try:
         url = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?response=json&type=ALLBUT0999"
 
-        r = session.get(url, timeout=10, verify=False)
+        res = session.get(url, timeout=10, verify=False)
 
-        if r.status_code != 200:
-            return None
-
-        data = r.json()
+        data = res.json()
 
         for table in data.get("tables", []):
-            for row in table.get("data", []):
 
-                if len(row) >= 2:
+            fields = table.get("fields", [])
+            rows = table.get("data", [])
 
-                    title = str(row[0])
+            if not fields or not rows:
+                continue
 
-                    if "成交金額" in title:
-                        amount = float(
-                            str(row[1]).replace(",", "")
-                        )
+            # 找成交金額欄位
+            if "成交金額" in fields:
 
-                        return amount / 100000000
+                idx = fields.index("成交金額")
+
+                # 第一列通常是大盤統計
+                value = rows[0][idx]
+
+                value = str(value).replace(",", "").replace("--", "")
+
+                amount = float(value)
+
+                return amount / 100000000
 
         return None
 
-    except:
+    except Exception as e:
+        print("成交金額錯誤:", e)
         return None
 
 def get_all_live_prices(stock_list):
@@ -249,7 +255,7 @@ diff_val = 0.0
 pct_val = 0.0
 
 market_amount = get_twse_market_amount()
-
+st.sidebar.write("Debug成交金額:", market_amount)
 if market_amount:
     volume_display = f"{market_amount:,.0f} 億"
 else:

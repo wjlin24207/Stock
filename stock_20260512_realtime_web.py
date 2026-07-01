@@ -170,7 +170,6 @@ def process_kd_logic(stock_id, live_info, hists_all):
         return None
 
 # ===== 4. 主程式資料流準備 =====
-# 重新將大盤加回清單最前方
 watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
 prices = get_all_live_prices(watchlist_stocks)
@@ -183,8 +182,7 @@ hists = get_all_yahoo_hist(watchlist_stocks)
 st.title("📊 策略監控儀表板（精簡專業版）")
 st.markdown("---")
 
-st.subheader("⭐ 自選股與大盤監控看板")
-
+# 整理基礎觀測 rows
 watch_rows = []
 for sid in watchlist_stocks:
     live = prices.get(sid)
@@ -192,7 +190,6 @@ for sid in watchlist_stocks:
         result = process_kd_logic(sid, live, hists)
         if result:
             if sid == "^TWII":
-                # 大盤獨立顯示，避免跑出 0 或錯誤張數
                 result["成交量"] = "大盤無張數"
             else:
                 v_stock = live.get('v', '0')
@@ -204,6 +201,78 @@ for sid in watchlist_stocks:
                 except:
                     result["成交量"] = f"{v_stock} 張"
             watch_rows.append(result)
+
+# ===== 🔴 核心新增：自選股與大盤即時監控卡片區 =====
+if watch_rows:
+    st.subheader("⭐ 自選股即時監控快照")
+    
+    # 採用每行 5 欄的網格布局
+    cards_per_row = 5
+    for i in range(0, len(watch_rows), cards_per_row):
+        cols = st.columns(cards_per_row)
+        chunk = watch_rows[i:i+cards_per_row]
+        
+        for idx, item in enumerate(chunk):
+            with cols[idx]:
+                sid = item["代號"]
+                name = item["名稱"]
+                price = item["價格"]
+                change = item["漲跌"]
+                pct = item["漲幅%"]
+                
+                # 台股視覺邏輯：上漲為紅（#FF4B4B），下跌為綠（#00B050）
+                if change > 0:
+                    color = "#FF4B4B"
+                    icon = "▲"
+                    sign = "+"
+                elif change < 0:
+                    color = "#00B050"
+                    icon = "▼"
+                    sign = ""
+                else:
+                    color = "#888888"
+                    icon = "—"
+                    sign = ""
+                
+                # 自動判斷個股跳轉網址
+                if sid == "^TWII":
+                    target_url = "https://tw.stock.yahoo.com/tw-market"
+                else:
+                    target_url = f"https://tw.stock.yahoo.com/quote/{sid}/technical-analysis"
+                
+                # 繪製精美卡片（支援懸停微調起動畫）
+                st.markdown(
+                    f"""
+                    <a href="{target_url}" target="_blank" style="text-decoration: none; color: inherit;">
+                        <div style="
+                            background-color: #1E222D; 
+                            padding: 14px; 
+                            border-radius: 10px; 
+                            border-left: 6px solid {color};
+                            margin-bottom: 12px;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            cursor: pointer;
+                            transition: transform 0.2s ease, box-shadow 0.2s ease;
+                        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)';" 
+                           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.1)';">
+                            <div style="color: #AEB3B7; font-size: 13px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                {name} ({sid}) ↗
+                            </div>
+                            <div style="color: #FFFFFF; font-size: 24px; font-weight: 700; font-family: monospace; line-height: 1.2;">
+                                {price:,.2f}
+                            </div>
+                            <div style="color: {color}; font-size: 13px; font-weight: 600; margin-top: 4px; font-family: monospace;">
+                                {icon} {sign}{change:,.2f} ({sign}{pct:.2f}%)
+                            </div>
+                        </div>
+                    </a>
+                    """, 
+                    unsafe_allow_html=True
+                )
+    st.markdown("---")
+
+# ===== 6. 原始數據總表區塊 (100% 保留原本的設計與連結) =====
+st.subheader("📋 自選股策略數據總覽")
 
 if not watch_rows:
     st.error("❌ 系統暫時無法獲取即時數據，請點擊左側手動刷新重試。")
@@ -238,15 +307,15 @@ else:
         "K": "{:.2f}", "D": "{:.2f}", "MA5": "{:.2f}", "MA10": "{:.2f}", "MA20": "{:.2f}"
     })
 
-    def color(val): return "color:red" if val > 0 else "color:green" if val < 0 else ""
+    def color(val): return "color:#FF4B4B" if val > 0 else "color:#00B050" if val < 0 else ""
     styled = styled.map(color, subset=["漲跌", "漲幅%"])
 
     def apply_price(row):
         diff = df.loc[row.name, "漲跌"]
-        return ["color:red; font-weight:bold"] if diff > 0 else ["color:green; font-weight:bold"] if diff < 0 else [""]
+        return ["color:#FF4B4B; font-weight:bold"] if diff > 0 else ["color:#00B050; font-weight:bold"] if diff < 0 else [""]
     styled = styled.apply(apply_price, subset=["價格"], axis=1)
 
-    def color_ma(val, price): return "color:red" if val < price else "color:green" if val > price else ""
+    def color_ma(val, price): return "color:#FF4B4B" if val < price else "color:#00B050" if val > price else ""
     def apply_ma(row):
         price = df.loc[row.name, "價格"]
         return [color_ma(row["MA5"], price), color_ma(row["MA10"], price), color_ma(row["MA20"], price)]
@@ -262,6 +331,6 @@ else:
 
     st.markdown(styled.hide(axis='index').to_html(escape=False), unsafe_allow_html=True)
 
-# ===== 6. 倒數計時並自動重整 (30秒) =====
+# ===== 7. 倒數計時並自動重整 (30秒) =====
 time.sleep(30)
 st.rerun()

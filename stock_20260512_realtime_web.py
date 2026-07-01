@@ -67,7 +67,6 @@ def get_twii_live_volume():
         res = session.get(url, timeout=5, verify=False)
         data = res.json()
         if 'msgArray' in data and len(data['msgArray']) > 0:
-            # v 欄位在 getMarketInfo 代表的是即時成交金額(百萬)
             v_val = data['msgArray'][0].get('v', '0')
             v_clean = float(str(v_val).replace(',', '').strip())
             if v_clean > 0:
@@ -133,7 +132,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         temp = hist.astype(float).copy()
         
-        # 確保寫入今日最新的收盤/即時價
         if 'close' in temp.columns:
             temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
@@ -237,17 +235,22 @@ twii_market_vol = get_twii_live_volume()
 if twii_market_vol:
     volume_display = twii_market_vol
 else:
-    # 2. 如果拿不到 (例如非盤中)，退回從 Yahoo 歷史資料抓昨量估算
+    # 2. 如果拿不到 (例如非盤中)，退回從 Yahoo 歷史資料抓最後一筆有效產出的成交量
     try:
         if isinstance(hists.columns, pd.MultiIndex):
-            latest_vol_raw = float(hists[('Volume', '^TWII')].iloc[-1])
+            vol_series = hists[('Volume', '^TWII')].dropna()
         else:
-            latest_vol_raw = float(hists['Volume'].iloc[-1])
-        
-        if latest_vol_raw > 0:
+            vol_series = hists['Volume'].dropna()
+            
+        # 確保過濾掉 0 的無效量，拿最後一個有交易量的日子
+        vol_series = vol_series[vol_series > 0]
+        if not vol_series.empty:
+            latest_vol_raw = float(vol_series.iloc[-1])
             volume_display = f"{latest_vol_raw / 100000000:,.0f} 億"
+        else:
+            volume_display = "未開盤"
     except:
-        volume_display = "暫無資料"
+        volume_display = "未開盤"
 
 if twii_live:
     try:
@@ -266,9 +269,9 @@ if twii_live:
 if y_val <= 0 or z_val <= 0:
     try:
         if isinstance(hists.columns, pd.MultiIndex):
-            y_val = float(hists[('Close', '^TWII')].iloc[-1])
+            y_val = float(hists[('Close', '^TWII')].dropna().iloc[-1])
         else:
-            y_val = float(hists['Close'].iloc[-1])
+            y_val = float(hists['Close'].dropna().iloc[-1])
         z_val = y_val
     except:
         if not st.session_state.twii_history.empty:
@@ -396,13 +399,19 @@ for sid in watchlist_stocks:
         result = process_kd_logic(sid, live, hist)
         if result:
             if sid == "^TWII":
-                # 大盤表格列同步上方取得的億元單位
                 result["成交量(張/億)"] = volume_display
             else:
-                # 個股取得累積成交張數 'v'
                 v_stock = live.get('v', '0')
                 try:
-                    result["成交量(張/億)"] = f"{int(v_stock):,} 張" if v_stock not in ['-', '', None] else "0 張"
+                    if v_stock not in ['-', '', None] and int(v_stock) > 0:
+                        result["成交量(張/億)"] = f"{int(v_stock):,} 張"
+                    else:
+                        # 即時 API 沒量時 (如假日)，去 yfinance 歷史 K 線抓最後一日成交量
+                        if isinstance(hist.columns, pd.MultiIndex):
+                            last_v = hist[('Volume', key)].dropna().iloc[-1]
+                        else:
+                            last_v = hist['Volume'].dropna().iloc[-1]
+                        result["成交量(張/億)"] = f"{int(last_v):,} 張" if last_v > 0 else "0 張"
                 except:
                     result["成交量(張/億)"] = f"{v_stock} 張"
             watch_rows.append(result)

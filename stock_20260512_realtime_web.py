@@ -77,7 +77,7 @@ def get_twii_live_volume():
 
 def get_all_yahoo_hist(stock_list):
     tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-    return yf.download(
+    df = yf.download(
         tickers,
         period="6mo",
         interval="1d",
@@ -85,6 +85,7 @@ def get_all_yahoo_hist(stock_list):
         group_by='ticker',
         auto_adjust=True
     )
+    return df
 
 def fetch_twii_today_trend():
     try:
@@ -113,6 +114,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
         if hist_df is None or hist_df.empty:
             return None
 
+        # 這裡的 hist_df 已經被外部過濾成單一股票的 DataFrame
         hist = hist_df.dropna().copy()
         hist.columns = [c.lower() for c in hist.columns]
 
@@ -132,6 +134,7 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         temp = hist.astype(float).copy()
         
+        # 精準覆蓋最後一天的收盤價
         if 'close' in temp.columns:
             temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
@@ -235,22 +238,21 @@ twii_market_vol = get_twii_live_volume()
 if twii_market_vol:
     volume_display = twii_market_vol
 else:
-    # 2. 如果拿不到 (例如非盤中)，退回從 Yahoo 歷史資料抓最後一筆有效產出的成交量
+    # 2. 如果拿不到 (例如非盤中)，處理 yfinance 多重索引提取昨量
     try:
         if isinstance(hists.columns, pd.MultiIndex):
             vol_series = hists[('Volume', '^TWII')].dropna()
         else:
             vol_series = hists['Volume'].dropna()
             
-        # 確保過濾掉 0 的無效量，拿最後一個有交易量的日子
         vol_series = vol_series[vol_series > 0]
         if not vol_series.empty:
             latest_vol_raw = float(vol_series.iloc[-1])
             volume_display = f"{latest_vol_raw / 100000000:,.0f} 億"
         else:
-            volume_display = "未開盤"
+            volume_display = "讀取中..."
     except:
-        volume_display = "未開盤"
+        volume_display = "讀取中..."
 
 if twii_live:
     try:
@@ -388,14 +390,16 @@ for sid in watchlist_stocks:
     live = prices.get(sid)
     key = f"{sid}.TW" if not sid.startswith("^") else sid
     
+    # 修正重點：解構 MultiIndex 避免切片報錯，獲取獨立股票的 DataFrame
     hist = None
     if isinstance(hists.columns, pd.MultiIndex):
-        if key in hists.columns.levels[0]: 
-            hist = hists[key]
-    else: 
+        if key in hists.columns.levels[1]:
+            # 將特定股票從多重索引中抽出來，並把 columns 轉換回一般的 ['Open', 'High', 'Low', 'Close', 'Volume']
+            hist = hists.xs(key, axis=1, level=1)
+    else:
         hist = hists
 
-    if live and hist is not None:
+    if live and hist is not None and not hist.empty:
         result = process_kd_logic(sid, live, hist)
         if result:
             if sid == "^TWII":
@@ -406,11 +410,8 @@ for sid in watchlist_stocks:
                     if v_stock not in ['-', '', None] and int(v_stock) > 0:
                         result["成交量(張/億)"] = f"{int(v_stock):,} 張"
                     else:
-                        # 即時 API 沒量時 (如假日)，去 yfinance 歷史 K 線抓最後一日成交量
-                        if isinstance(hist.columns, pd.MultiIndex):
-                            last_v = hist[('Volume', key)].dropna().iloc[-1]
-                        else:
-                            last_v = hist['Volume'].dropna().iloc[-1]
+                        # 備援：若即時資料短暫無量，去 hist 裡面拿最後一天的歷史量
+                        last_v = hist['Volume'].dropna().iloc[-1]
                         result["成交量(張/億)"] = f"{int(last_v):,} 張" if last_v > 0 else "0 張"
                 except:
                     result["成交量(張/億)"] = f"{v_stock} 張"

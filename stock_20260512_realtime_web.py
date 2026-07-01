@@ -9,7 +9,7 @@ import streamlit as st
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="自選股 KD 均線監控儀表板", layout="wide")
+st.set_page_config(page_title="自選股 KD 均線監控儀表板 (含大盤)", layout="wide")
 
 # ===== 2. 側邊控制面板 =====
 st.sidebar.title("📊 控制面板")
@@ -21,7 +21,7 @@ if st.sidebar.button("🔄 手動刷新資料"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("純淨自選股版：已移除不穩定的大盤 API 區塊，專注於個股與 ETF 的 KD 策略監控。")
+st.sidebar.info("精簡優化版：已將加權指數融入下方表格一同監控，移除了上方繁雜的獨立走勢圖。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -30,8 +30,11 @@ session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)
 def get_all_live_prices(stock_list):
     ex_ch_list = []
     for sid in stock_list:
-        ex_ch_list.append(f"tse_{sid}.tw")
-        ex_ch_list.append(f"otc_{sid}.tw")
+        if sid == "^TWII":
+            ex_ch_list.append("tse_t00.tw")
+        else:
+            ex_ch_list.append(f"tse_{sid}.tw")
+            ex_ch_list.append(f"otc_{sid}.tw")
 
     url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={'|'.join(ex_ch_list)}&json=1&delay=0"
 
@@ -43,13 +46,15 @@ def get_all_live_prices(stock_list):
         if 'msgArray' in data:
             for info in data['msgArray']:
                 key = info.get('c')
+                if key == 't00':
+                    key = '^TWII'
                 price_map[key] = info
         return price_map
     except:
         return {}
 
 def get_all_yahoo_hist(stock_list):
-    tickers = [f"{sid}.TW" for sid in stock_list]
+    tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
     try:
         return yf.download(
             tickers,
@@ -64,7 +69,7 @@ def get_all_yahoo_hist(stock_list):
 
 def process_kd_logic(stock_id, live_info, hists_all):
     try:
-        key = f"{stock_id}.TW"
+        key = f"{stock_id}.TW" if not stock_id.startswith("^") else stock_id
         
         if isinstance(hists_all.columns, pd.MultiIndex):
             if key in hists_all.columns.levels[0]:
@@ -144,6 +149,8 @@ def process_kd_logic(stock_id, live_info, hists_all):
             ma_status = "➖盤整"
 
         name = live_info.get('n', stock_id)
+        if stock_id == "^TWII":
+            name = "加權指數"
 
         return {
             "代號": stock_id,
@@ -163,7 +170,7 @@ def process_kd_logic(stock_id, live_info, hists_all):
         return None
 
 # ===== 4. 主程式資料流準備 =====
-# 已完全移除大盤符號 "^TWII"
+# 重新將大盤加回清單最前方
 watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
 prices = get_all_live_prices(watchlist_stocks)
@@ -176,7 +183,7 @@ hists = get_all_yahoo_hist(watchlist_stocks)
 st.title("📊 策略監控儀表板（精簡專業版）")
 st.markdown("---")
 
-st.subheader("⭐ 自選股監控看板")
+st.subheader("⭐ 自選股與大盤監控看板")
 
 watch_rows = []
 for sid in watchlist_stocks:
@@ -184,29 +191,35 @@ for sid in watchlist_stocks:
     if live and not hists.empty:
         result = process_kd_logic(sid, live, hists)
         if result:
-            v_stock = live.get('v', '0')
-            try:
-                if v_stock not in ['-', '', None] and int(v_stock) > 0:
-                    result["成交量(張)"] = f"{int(v_stock):,} 張"
-                else:
-                    result["成交量(張)"] = "0 張"
-            except:
-                result["成交量(張)"] = f"{v_stock} 張"
+            if sid == "^TWII":
+                # 大盤獨立顯示，避免跑出 0 或錯誤張數
+                result["成交量"] = "大盤無張數"
+            else:
+                v_stock = live.get('v', '0')
+                try:
+                    if v_stock not in ['-', '', None] and int(v_stock) > 0:
+                        result["成交量"] = f"{int(v_stock):,} 張"
+                    else:
+                        result["成交量"] = "0 張"
+                except:
+                    result["成交量"] = f"{v_stock} 張"
             watch_rows.append(result)
 
 if not watch_rows:
-    st.error("❌ 系統暫時無法獲取自選股即時數據，請點擊左側手動刷新重試。")
+    st.error("❌ 系統暫時無法獲取即時數據，請點擊左側手動刷新重試。")
 else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     
-    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量(張)", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
+    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
     df = df[[c for c in col_order if c in df.columns]]
     
     df["代號_raw"] = df["代號/K線"]
 
     def make_id_link(row):
         sid = row["代號_raw"]
+        if sid == "^TWII":
+            return f'<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">{sid}</a>'
         return f'<a href="https://tw.stock.yahoo.com/quote/{sid}/technical-analysis" target="_blank">{sid}</a>'
 
     def make_name_link(row):

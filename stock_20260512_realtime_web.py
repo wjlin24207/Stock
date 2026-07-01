@@ -5,16 +5,11 @@ import urllib3
 import time
 from datetime import datetime, timedelta
 import streamlit as st
-import plotly.graph_objects as go
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===== 1. 頁面初始化與設定 =====
-st.set_page_config(page_title="KD監控儀表板 (三竹1:1對稱版)", layout="wide")
-
-# 初始化大盤歷史走勢紀錄器
-if "twii_history" not in st.session_state:
-    st.session_state.twii_history = pd.DataFrame(columns=["時間", "點數"])
+st.set_page_config(page_title="自選股 KD 均線監控儀表板", layout="wide")
 
 # ===== 2. 側邊控制面板 =====
 st.sidebar.title("📊 控制面板")
@@ -23,12 +18,10 @@ taiwan_time = datetime.utcnow() + timedelta(hours=8)
 st.sidebar.write(f"⏱️ 上次更新：{taiwan_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 if st.sidebar.button("🔄 手動刷新資料"):
-    if "twii_base_loaded" in st.session_state:
-        del st.session_state.twii_base_loaded
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("三竹優化版：已在對稱 Y 軸邊界加上 15% 留白安全間距，優化折線展示視覺效果。")
+st.sidebar.info("純淨自選股版：已移除不穩定的大盤 API 區塊，專注於個股與 ETF 的 KD 策略監控。")
 
 # ===== 3. 資料抓取核心邏輯 =====
 session = requests.Session()
@@ -37,11 +30,8 @@ session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)
 def get_all_live_prices(stock_list):
     ex_ch_list = []
     for sid in stock_list:
-        if sid == "^TWII":
-            ex_ch_list.append("tse_t00.tw")
-        else:
-            ex_ch_list.append(f"tse_{sid}.tw")
-            ex_ch_list.append(f"otc_{sid}.tw")
+        ex_ch_list.append(f"tse_{sid}.tw")
+        ex_ch_list.append(f"otc_{sid}.tw")
 
     url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={'|'.join(ex_ch_list)}&json=1&delay=0"
 
@@ -53,69 +43,40 @@ def get_all_live_prices(stock_list):
         if 'msgArray' in data:
             for info in data['msgArray']:
                 key = info.get('c')
-                if key == 't00':
-                    key = '^TWII'
                 price_map[key] = info
         return price_map
     except:
         return {}
 
-def get_twii_live_volume():
-    """專門獲取大盤即時成交金額(億)"""
-    url = "https://mis.twse.com.tw/stock/api/getMarketInfo.jsp?ex=tse&json=1"
-    try:
-        res = session.get(url, timeout=5, verify=False)
-        data = res.json()
-        if 'msgArray' in data and len(data['msgArray']) > 0:
-            v_val = data['msgArray'][0].get('v', '0')
-            v_clean = float(str(v_val).replace(',', '').strip())
-            if v_clean > 0:
-                return f"{v_clean / 100:,.0f} 億"
-    except:
-        pass
-    return None
-
 def get_all_yahoo_hist(stock_list):
-    tickers = [f"{sid}.TW" if not sid.startswith("^") else sid for sid in stock_list]
-    df = yf.download(
-        tickers,
-        period="6mo",
-        interval="1d",
-        progress=False,
-        group_by='ticker',
-        auto_adjust=True
-    )
-    return df
-
-def fetch_twii_today_trend():
+    tickers = [f"{sid}.TW" for sid in stock_list]
     try:
-        df = yf.download("^TWII", period="1d", interval="1m", progress=False)
-        if df.empty:
-            return pd.DataFrame(columns=["時間", "點數"])
-        
-        if isinstance(df.columns, pd.MultiIndex):
-            close_series = df[('Close', '^TWII')]
-        else:
-            close_series = df['Close']
-            
-        close_series = close_series.dropna()
-        
-        trend_df = pd.DataFrame(close_series).reset_index()
-        trend_df.columns = ["Datetime", "點數"]
-        trend_df['Datetime'] = pd.to_datetime(trend_df['Datetime'])
-        trend_df['時間'] = trend_df['Datetime'].dt.tz_convert('Asia/Taipei').dt.strftime('%H:%M')
-        
-        return trend_df[["時間", "點數"]].drop_duplicates(subset=["時間"])
+        return yf.download(
+            tickers,
+            period="6mo",
+            interval="1d",
+            progress=False,
+            group_by='ticker',
+            auto_adjust=True
+        )
     except:
-        return pd.DataFrame(columns=["時間", "點數"])
+        return pd.DataFrame()
 
-def process_kd_logic(stock_id, live_info, hist_df):
+def process_kd_logic(stock_id, live_info, hists_all):
     try:
-        if hist_df is None or hist_df.empty:
-            return None
+        key = f"{stock_id}.TW"
+        
+        if isinstance(hists_all.columns, pd.MultiIndex):
+            if key in hists_all.columns.levels[0]:
+                hist = hists_all[key].dropna().copy()
+            else:
+                return None
+        else:
+            hist = hists_all.dropna().copy()
 
-        # 這裡的 hist_df 已經被外部過濾成單一股票的 DataFrame
-        hist = hist_df.dropna().copy()
+        if hist.empty:
+            return None
+            
         hist.columns = [c.lower() for c in hist.columns]
 
         z = live_info.get('z', '-')
@@ -134,7 +95,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
 
         temp = hist.astype(float).copy()
         
-        # 精準覆蓋最後一天的收盤價
         if 'close' in temp.columns:
             temp.iloc[-1, temp.columns.get_loc('close')] = live_price
 
@@ -184,8 +144,6 @@ def process_kd_logic(stock_id, live_info, hist_df):
             ma_status = "➖盤整"
 
         name = live_info.get('n', stock_id)
-        if stock_id == "^TWII":
-            name = "加權指數"
 
         return {
             "代號": stock_id,
@@ -205,232 +163,50 @@ def process_kd_logic(stock_id, live_info, hist_df):
         return None
 
 # ===== 4. 主程式資料流準備 =====
-watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
+# 已完全移除大盤符號 "^TWII"
+watchlist_stocks = ["0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
 
 prices = get_all_live_prices(watchlist_stocks)
 hists = get_all_yahoo_hist(watchlist_stocks)
-
-# 載入或更新大盤今日分時走勢底圖
-if "twii_base_loaded" not in st.session_state:
-    st.session_state.twii_history = fetch_twii_today_trend()
-    st.session_state.twii_base_loaded = True
 
 # ==========================================
 # ===== 5. 網頁版面布局 =====
 # ==========================================
 
-st.title("📊 策略監控儀表板（專業版）")
+st.title("📊 策略監控儀表板（精簡專業版）")
 st.markdown("---")
 
-# --- 第一層：大盤即時橫式資訊列 + 對稱分時圖 ---
-st.subheader("📈 加權指數即時走勢")
-
-twii_live = prices.get("^TWII")
-
-z_val = 0.0
-y_val = 0.0
-diff_val = 0.0
-pct_val = 0.0
-volume_display = "讀取中..."
-
-# 1. 優先獲取大盤即時總成交金額 (證交所 Market API)
-twii_market_vol = get_twii_live_volume()
-if twii_market_vol:
-    volume_display = twii_market_vol
-else:
-    # 2. 如果拿不到 (例如非盤中)，處理 yfinance 多重索引提取昨量
-    try:
-        if isinstance(hists.columns, pd.MultiIndex):
-            vol_series = hists[('Volume', '^TWII')].dropna()
-        else:
-            vol_series = hists['Volume'].dropna()
-            
-        vol_series = vol_series[vol_series > 0]
-        if not vol_series.empty:
-            latest_vol_raw = float(vol_series.iloc[-1])
-            volume_display = f"{latest_vol_raw / 100000000:,.0f} 億"
-        else:
-            volume_display = "讀取中..."
-    except:
-        volume_display = "讀取中..."
-
-if twii_live:
-    try:
-        live_z = twii_live.get('z', '-')
-        if live_z not in ['-', '', None]:
-            z_val = float(live_z)
-        else:
-            z_val = float(twii_live.get('y', 0))
-            
-        live_y = twii_live.get('y', '-')
-        if live_y not in ['-', '', None]:
-            y_val = float(live_y)
-    except:
-        pass
-
-if y_val <= 0 or z_val <= 0:
-    try:
-        if isinstance(hists.columns, pd.MultiIndex):
-            y_val = float(hists[('Close', '^TWII')].dropna().iloc[-1])
-        else:
-            y_val = float(hists['Close'].dropna().iloc[-1])
-        z_val = y_val
-    except:
-        if not st.session_state.twii_history.empty:
-            y_val = float(st.session_state.twii_history["點數"].iloc[0])
-            z_val = float(st.session_state.twii_history["點數"].iloc[-1])
-
-diff_val = z_val - y_val
-pct_val = (diff_val / y_val * 100) if y_val > 0 else 0
-color_code = "#FF4B4B" if diff_val > 0 else "#00A86B" if diff_val < 0 else "#FFFFFF"
-
-st.markdown(f"""
-<div style="background-color:rgba(255,255,255,0.03); padding:12px 15px; border-radius:8px; margin-bottom:15px; display:flex; flex-wrap:wrap; gap:15px 30px; align-items:center;">
-    <div style="flex:1; min-width:140px; white-space:nowrap;">
-        <span style="font-size:14px; color:#888;">加權指數:</span>
-        <span style="font-size:22px; color:{color_code}; font-weight:bold; margin-left:6px;">{z_val:,.2f}</span>
-    </div>
-    <div style="flex:1; min-width:180px; white-space:nowrap;">
-        <span style="font-size:14px; color:#888;">漲跌:</span>
-        <span style="font-size:22px; color:{color_code}; font-weight:bold; margin-left:6px;">{diff_val:+,.2f} ({pct_val:+,.2f}%)</span>
-    </div>
-    <div style="flex:1; min-width:140px; white-space:nowrap;">
-        <span style="font-size:14px; color:#888;">總成交金額:</span>
-        <span style="font-size:22px; color:{color_code}; font-weight:bold; margin-left:6px;">{volume_display}</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# --- 5. 處理走勢圖數據累加 ---
-if twii_live and z_val > 0:
-    t_raw = twii_live.get('t', datetime.now().strftime("%H:%M:%S"))
-    current_time_hm = t_raw[:5] 
-    
-    new_row = pd.DataFrame([{"時間": current_time_hm, "點數": z_val}])
-    if st.session_state.twii_history.empty:
-        st.session_state.twii_history = new_row
-    else:
-        if current_time_hm in st.session_state.twii_history["時間"].values:
-            st.session_state.twii_history.loc[st.session_state.twii_history["時間"] == current_time_hm, "點數"] = z_val
-        else:
-            st.session_state.twii_history = pd.concat([st.session_state.twii_history, new_row], ignore_index=True)
-
-# --- 6. 繪製精準 1:1 三竹對稱走勢圖 ---
-if not st.session_state.twii_history.empty and y_val > 0:
-    st.session_state.twii_history = st.session_state.twii_history.sort_values(by="時間").reset_index(drop=True)
-    
-    max_val = st.session_state.twii_history["點數"].max()
-    min_val = st.session_state.twii_history["點數"].min()
-    
-    max_deviation = max(abs(max_val - y_val), abs(min_val - y_val))
-    if max_deviation == 0:
-        max_deviation = y_val * 0.001
-        
-    y_limit_top = y_val + (max_deviation * 1.5)
-    y_limit_bottom = y_val - (max_deviation * 1.5)
-    
-    mid_top = y_val + ((max_deviation * 1.5) / 2.0)
-    mid_bottom = y_val - ((max_deviation * 1.5) / 2.0)
-    custom_yticks = [y_limit_bottom, mid_bottom, y_val, mid_top, y_limit_top]
-    
-    start_time = datetime.strptime("09:00", "%H:%M")
-    full_time_slots = [(start_time + timedelta(minutes=i)).strftime("%H:%M") for i in range(271)] 
-    market_ticks = ["09:00", "10:00", "11:00", "12:00", "13:00", "13:30"]
-    
-    fig = go.Figure()
-    
-    fig.add_shape(
-        type="line", 
-        x0="09:00", y0=y_val, 
-        x1="13:30", y1=y_val,
-        line=dict(color="rgba(128, 128, 128, 0.4)", width=1.5, dash="dash")
-    )
-    
-    fig.add_trace(go.Scatter(
-        x=st.session_state.twii_history["時間"],
-        y=st.session_state.twii_history["點數"],
-        mode='lines',
-        name='大盤即時走勢',
-        line=dict(color='#FF4B4B', width=2),
-        fill='tozeroy',
-        fillcolor='rgba(255, 75, 75, 0.02)'
-    ))
-    
-    fig.update_layout(
-        margin=dict(l=10, r=10, t=5, b=10),
-        height=320,
-        xaxis=dict(
-            type='category',              
-            categoryorder='array',        
-            categoryarray=full_time_slots,
-            tickvals=market_ticks,        
-            tickangle=0,
-            showgrid=True,
-            gridcolor='rgba(128, 128, 128, 0.1)'
-        ),
-        yaxis=dict(
-            range=[y_limit_bottom, y_limit_top], 
-            tickvals=custom_yticks,
-            tickformat=",.2f", 
-            side="left"
-        ),
-        template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("📊 正在載入大盤資料並同步昨收基準點...")
-
-st.markdown("---")
-
-# --- 第三層：下方全寬 [自選股看板] ---
 st.subheader("⭐ 自選股監控看板")
 
 watch_rows = []
 for sid in watchlist_stocks:
     live = prices.get(sid)
-    key = f"{sid}.TW" if not sid.startswith("^") else sid
-    
-    # 修正重點：解構 MultiIndex 避免切片報錯，獲取獨立股票的 DataFrame
-    hist = None
-    if isinstance(hists.columns, pd.MultiIndex):
-        if key in hists.columns.levels[1]:
-            # 將特定股票從多重索引中抽出來，並把 columns 轉換回一般的 ['Open', 'High', 'Low', 'Close', 'Volume']
-            hist = hists.xs(key, axis=1, level=1)
-    else:
-        hist = hists
-
-    if live and hist is not None and not hist.empty:
-        result = process_kd_logic(sid, live, hist)
+    if live and not hists.empty:
+        result = process_kd_logic(sid, live, hists)
         if result:
-            if sid == "^TWII":
-                result["成交量(張/億)"] = volume_display
-            else:
-                v_stock = live.get('v', '0')
-                try:
-                    if v_stock not in ['-', '', None] and int(v_stock) > 0:
-                        result["成交量(張/億)"] = f"{int(v_stock):,} 張"
-                    else:
-                        # 備援：若即時資料短暫無量，去 hist 裡面拿最後一天的歷史量
-                        last_v = hist['Volume'].dropna().iloc[-1]
-                        result["成交量(張/億)"] = f"{int(last_v):,} 張" if last_v > 0 else "0 張"
-                except:
-                    result["成交量(張/億)"] = f"{v_stock} 張"
+            v_stock = live.get('v', '0')
+            try:
+                if v_stock not in ['-', '', None] and int(v_stock) > 0:
+                    result["成交量(張)"] = f"{int(v_stock):,} 張"
+                else:
+                    result["成交量(張)"] = "0 張"
+            except:
+                result["成交量(張)"] = f"{v_stock} 張"
             watch_rows.append(result)
 
 if not watch_rows:
-    st.error("❌ 系統暫時無法獲取自選股清單之即時數據")
+    st.error("❌ 系統暫時無法獲取自選股即時數據，請點擊左側手動刷新重試。")
 else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     
-    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量(張/億)", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
+    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量(張)", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
     df = df[[c for c in col_order if c in df.columns]]
     
     df["代號_raw"] = df["代號/K線"]
 
     def make_id_link(row):
         sid = row["代號_raw"]
-        if sid == "^TWII": return f'<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">{sid}</a>'
         return f'<a href="https://tw.stock.yahoo.com/quote/{sid}/technical-analysis" target="_blank">{sid}</a>'
 
     def make_name_link(row):

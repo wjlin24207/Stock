@@ -34,12 +34,68 @@ st.sidebar.info("三竹優化版：已在對稱 Y 軸邊界加上 15% 留白安�
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
+# ===== 三竹版市場統計 =====
+def get_market_stats():
+    try:
+
+        url = "https://mis.twse.com.tw/stock/data/mis_ohlc_TSE.txt"
+
+        res = session.get(
+            url,
+            timeout=10,
+            verify=False
+        )
+
+        txt = res.text
+
+        market_amount = None
+
+        # 找成交金額
+        import re
+
+        amount_patterns = [
+            r'"a":"([\d,]+)"',
+            r'"amt":"([\d,]+)"'
+        ]
+
+        for p in amount_patterns:
+
+            m = re.search(p, txt)
+
+            if m:
+                amt = float(
+                    m.group(1).replace(",", "")
+                )
+
+                market_amount = amt / 100000000
+                break
+
+        return {
+            "amount": market_amount
+        }
+
+    except Exception as e:
+
+        print("市場統計錯誤:", e)
+
+        return {
+            "amount": None
+        }
+
 # ===== 取得上市總成交金額(億元) =====
 def get_twse_market_amount():
     try:
-        url = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?response=json&type=ALLBUT0999"
 
-        res = session.get(url, timeout=10, verify=False)
+        url = (
+            "https://www.twse.com.tw/rwd/zh/afterTrading/"
+            "MI_INDEX?response=json&type=ALLBUT0999"
+        )
+
+        res = session.get(
+            url,
+            timeout=10,
+            verify=False
+        )
 
         data = res.json()
 
@@ -48,18 +104,21 @@ def get_twse_market_amount():
             fields = table.get("fields", [])
             rows = table.get("data", [])
 
-            if not fields or not rows:
+            if not rows:
                 continue
 
-            # 找成交金額欄位
-            if "成交金額" in fields:
+            # 找市場統計表
+            if (
+                "成交股數" in fields and
+                "成交金額" in fields and
+                "成交筆數" in fields
+            ):
 
                 idx = fields.index("成交金額")
 
-                # 第一列通常是大盤統計
-                value = rows[0][idx]
+                value = str(rows[0][idx])
 
-                value = str(value).replace(",", "").replace("--", "")
+                value = value.replace(",", "")
 
                 amount = float(value)
 
@@ -254,12 +313,12 @@ y_val = 0.0
 diff_val = 0.0
 pct_val = 0.0
 
-market_amount = get_twse_market_amount()
-st.sidebar.write("Debug成交金額:", market_amount)
-if market_amount:
-    volume_display = f"{market_amount:,.0f} 億"
-else:
-    volume_display = "讀取中..."
+market_stats = get_market_stats()
+
+volume_display = "讀取中..."
+
+if market_stats["amount"]:
+    volume_display = f"{market_stats['amount']:,.0f} 億"
     
 
 if twii_live:

@@ -288,7 +288,7 @@ else:
     def make_id_link(row):
         sid = row["代號_raw"]
         if sid == "^TWII":
-            #return f'<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">{sid}</a>'
+            return f'<a href="https://tw.stock.yahoo.com/tw-market" target="_blank">{sid}</a>'
         return f'<a href="https://tw.stock.yahoo.com/quote/{sid}/technical-analysis" target="_blank">{sid}</a>'
 
     def make_name_link(row):

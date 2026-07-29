@@ -1,7 +1,7 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="R&S FSW Tool",
+    page_title="WJLin_Stock_Tracking",
     layout="wide"
 )
 

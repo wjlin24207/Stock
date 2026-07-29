@@ -8,8 +8,8 @@ import pandas as pd
 import time
 
 # 設定網頁標題與配置
-st.set_page_config(page_title="全球重要指數與期貨看板", layout="wide")
-st.title("📊 全球重要指數與期貨即時看板")
+st.set_page_config(page_title="期貨與美股", layout="wide")
+st.title("📊 期貨與美股看版")
 
 # 監控的商品代號與對應點數跳轉的外部連結
 market_tickers = {

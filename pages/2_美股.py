@@ -13,14 +13,14 @@ st.title("📊 期貨與美股看版")
 
 # 監控的商品代號與對應點數跳轉的外部連結
 market_tickers = {
-    #"小道瓊": {"ticker": "YM=F", "url": "https://finance.yahoo.com.tw/quote/YM=F"},
-    #"小S&P500": {"ticker": "ES=F", "url": "https://finance.yahoo.com.tw/quote/ES=F"},
-    #"小那斯達克": {"ticker": "NQ=F", "url": "https://finance.yahoo.com.tw/quote/NQ=F"},
-    #"台指期夜盤": {"ticker": "TXF1", "url": "https://www.cmoney.tw/forum/futures/TXF1?s=p"},
-    #"道瓊指數": {"ticker": "^DJI", "url": "https://finance.yahoo.com.tw/quote/^DJI"},
-    #"S&P500": {"ticker": "^GSPC", "url": "https://finance.yahoo.com.tw/quote/^GSPC"},
-    #"那斯達克": {"ticker": "^IXIC", "url": "https://finance.yahoo.com.tw/quote/^IXIC"},
-    #"費城半導體": {"ticker": "^SOX", "url": "https://finance.yahoo.com.tw/quote/^SOX"},
+    "小道瓊": {"ticker": "YM=F", "url": "https://finance.yahoo.com.tw/quote/YM=F"},
+    "小S&P500": {"ticker": "ES=F", "url": "https://finance.yahoo.com.tw/quote/ES=F"},
+    "小那斯達克": {"ticker": "NQ=F", "url": "https://finance.yahoo.com.tw/quote/NQ=F"},
+    "台指期夜盤": {"ticker": "TXF1", "url": "https://www.cmoney.tw/forum/futures/TXF1?s=p"},
+    "道瓊指數": {"ticker": "^DJI", "url": "https://finance.yahoo.com.tw/quote/^DJI"},
+    "S&P500": {"ticker": "^GSPC", "url": "https://finance.yahoo.com.tw/quote/^GSPC"},
+    "那斯達克": {"ticker": "^IXIC", "url": "https://finance.yahoo.com.tw/quote/^IXIC"},
+    "費城半導體": {"ticker": "^SOX", "url": "https://finance.yahoo.com.tw/quote/^SOX"},
     "台積電ADR": {"ticker": "TSM", "url": "https://finance.yahoo.com/quote/TSM"},
     "日月光ADR": {"ticker": "ASX", "url": "https://finance.yahoo.com/quote/ASX"}
 

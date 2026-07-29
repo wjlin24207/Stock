@@ -189,17 +189,6 @@ for sid in watchlist_stocks:
     if live and not hists.empty:
         result = process_kd_logic(sid, live, hists)
         if result:
-            if sid == "^TWII":
-                result["成交量"] = "大盤無張數"
-            else:
-                v_stock = live.get('v', '0')
-                try:
-                    if v_stock not in ['-', '', None] and int(v_stock) > 0:
-                        result["成交量"] = f"{int(v_stock):,} 張"
-                    else:
-                        result["成交量"] = "0 張"
-                except:
-                    result["成交量"] = f"{v_stock} 張"
             watch_rows.append(result)
 
 # ===== 🔴 核心新增：自選股與大盤即時監控卡片區 =====
@@ -280,7 +269,7 @@ else:
     df = pd.DataFrame(watch_rows)
     df = df.rename(columns={"代號": "代號/K線", "名稱": "名稱/成份股"})
     
-    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "成交量", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
+    col_order = ["代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%", "K", "D", "MA5", "MA10", "MA20", "均線狀態", "訊號"]
     df = df[[c for c in col_order if c in df.columns]]
     
     df["代號_raw"] = df["代號/K線"]

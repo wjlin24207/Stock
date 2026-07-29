@@ -5,7 +5,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("R&S FSW Tool")
+st.title("股票系統")
 
 st.write("請從左側選單選擇要執行的功能。")
 

@@ -15,8 +15,8 @@ st.markdown(
 
     左側 Pages 會顯示：
 
-    - FSW Screenshot
-    - FSW CSE Measurement
+    - 台股
+    - 美股
 
     選擇後就會直接執行對應的 Streamlit 程式。
     """

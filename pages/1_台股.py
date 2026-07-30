@@ -170,7 +170,7 @@ def process_kd_logic(stock_id, live_info, hists_all):
         return None
 
 # ===== 4. 主程式資料流準備 =====
-watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "00981A", "00988A", "00631L", "2330", "3711"]
+watchlist_stocks = ["^TWII", "0056", "00878", "00919", "0050", "009816", "00981A", "00988A", "00631L", "2330", "3711"]
 
 prices = get_all_live_prices(watchlist_stocks)
 hists = get_all_yahoo_hist(watchlist_stocks)

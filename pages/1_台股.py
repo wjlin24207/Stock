@@ -186,7 +186,7 @@ refresh_seconds = st.number_input(
     "⏱️ 自動刷新秒數",
     min_value=5,
     max_value=3600,
-    value=30
+    value=30,
     step=5
 )
 

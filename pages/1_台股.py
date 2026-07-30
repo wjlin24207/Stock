@@ -182,6 +182,13 @@ hists = get_all_yahoo_hist(watchlist_stocks)
 st.title("📊 策略監控儀表板（精簡專業版）")
 st.markdown("---")
 
+refresh_seconds = st.number_input(
+    "⏱️ 自動刷新秒數",
+    min_value=5,
+    max_value=3600,
+    value=30
+)
+
 # 整理基礎觀測 rows
 watch_rows = []
 for sid in watchlist_stocks:
@@ -321,5 +328,5 @@ else:
     st.markdown(styled.hide(axis='index').to_html(escape=False), unsafe_allow_html=True)
 
 # ===== 7. 倒數計時並自動重整 (30秒) =====
-time.sleep(30)
+time.sleep(refresh_seconds)
 st.rerun()

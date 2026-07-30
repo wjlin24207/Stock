@@ -187,6 +187,7 @@ refresh_seconds = st.number_input(
     min_value=5,
     max_value=3600,
     value=30
+    step=5
 )
 
 # 整理基礎觀測 rows

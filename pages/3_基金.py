@@ -115,10 +115,10 @@ with st.spinner("正在從 MoneyDJ 抓取最新報價..."):
         data_list.append(info)
 
 # -----------------------------------------------------
-# UI 介面生成 (全卡片可點擊排版)
+# UI 介面生成 (視覺焦點調整版)
 # -----------------------------------------------------
 if data_list:
-    st.write("") # 增加上方留白
+    st.write("") 
     
     for item in data_list:
         if item['最新淨值'] == "N/A":
@@ -130,7 +130,7 @@ if data_list:
         arrow = "▼" if is_down else "▲"
         display_change = item['漲跌幅'].replace("-", "")
 
-        # 💡 重點修改：在最外層加上 <a> 標籤，並設定 text-decoration: none 來隱藏底線
+        # 💡 HTML 樣式已根據您的需求重新配重
         card_html = f"""
         <a href="{item['資料連結']}" target="_blank" style="text-decoration: none; display: block;">
             <div style="
@@ -142,13 +142,19 @@ if data_list:
                 box-shadow: 0 4px 6px rgba(0,0,0,0.3);
                 cursor: pointer;
             ">
-                <div style="color: #a3a8b8; font-size: 14px; margin-bottom: 6px;">
-                    {item['基金名稱']} ({item['淨值日期']})
+                <!-- 1. 放大基金名稱 (22px, 白色粗體)，保留日期在旁邊當輔助資訊 -->
+                <div style="color: #ffffff; font-size: 22px; font-weight: bold; margin-bottom: 8px;">
+                    {item['基金名稱']} 
+                    <span style="color: #a3a8b8; font-size: 14px; font-weight: normal;">({item['淨值日期']})</span>
                 </div>
-                <div style="color: white; font-size: 32px; font-weight: bold; margin-bottom: 6px; font-family: monospace;">
-                    {item['最新淨值']}
+                
+                <!-- 2. 縮小淨值 (18px)，加入文字提示，顏色稍微調暗以降低視覺干擾 -->
+                <div style="color: #a3a8b8; font-size: 18px; margin-bottom: 4px; font-family: monospace;">
+                    淨值: {item['最新淨值']}
                 </div>
-                <div style="color: {color}; font-size: 16px; font-weight: 600;">
+                
+                <!-- 3. 放大漲跌幅 (34px, 粗體)，成為畫面最大的視覺焦點 -->
+                <div style="color: {color}; font-size: 34px; font-weight: bold; font-family: monospace;">
                     {arrow} {display_change}
                 </div>
             </div>

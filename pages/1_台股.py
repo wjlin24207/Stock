@@ -252,13 +252,13 @@ if watch_rows:
                             transition: transform 0.2s ease, box-shadow 0.2s ease;
                         " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)';" 
                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.1)';">
-                            <div style="color: #AEB3B7; font-size: 13px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            <div style="color: #AEB3B7; font-size: 22px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                 {name} ({sid}) ↗
                             </div>
-                            <div style="color: #FFFFFF; font-size: 24px; font-weight: 700; font-family: monospace; line-height: 1.2;">
+                            <div style="color: #FFFFFF; font-size: 18px; font-weight: 700; font-family: monospace; line-height: 1.2;">
                                 {price:,.2f}
                             </div>
-                            <div style="color: {color}; font-size: 13px; font-weight: 600; margin-top: 4px; font-family: monospace;">
+                            <div style="color: {color}; font-size: 24px; font-weight: 600; margin-top: 4px; font-family: monospace;">
                                 {icon} {sign}{change:,.2f} ({sign}{pct:.2f}%)
                             </div>
                         </div>

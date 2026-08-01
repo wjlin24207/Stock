@@ -135,7 +135,7 @@ if data_list:
 <div style="background-color: #262730; padding: 16px 20px; border-radius: 8px; border-left: 6px solid {color}; margin-bottom: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer;">
 <div style="color: #ffffff; font-size: 22px; font-weight: bold; margin-bottom: 8px;">{item['基金名稱']} <span style="color: #a3a8b8; font-size: 14px; font-weight: normal;">({item['淨值日期']})</span></div>
 <div style="color: #a3a8b8; font-size: 18px; margin-bottom: 4px; font-family: monospace;">淨值: {item['最新淨值']}</div>
-<div style="color: {color}; font-size: 34px; font-weight: bold; font-family: monospace;">{arrow} {display_change}</div>
+<div style="color: {color}; font-size: 28px; font-weight: bold; font-family: monospace;">{arrow} {display_change}</div>
 </div>
 </a>"""
         st.markdown(card_html, unsafe_allow_html=True)

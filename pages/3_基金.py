@@ -3,8 +3,10 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
-st.set_page_config(page_title="自選基金追蹤", layout="wide")
-st.title("📈 自選基金當日報價與漲跌幅")
+# 頁面設定 (適合手機版，移除 wide layout)
+st.set_page_config(page_title="自選基金追蹤", layout="centered")
+
+st.markdown("## ⭐ 自選基金即時監控快照")
 
 FUNDS = {
     "安聯收益成長-AM穩定月收": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=tlz64",
@@ -106,38 +108,67 @@ def fetch_moneydj_fund(name, url):
         return {"基金名稱": name, "最新淨值": "N/A", "漲跌幅": "N/A", "淨值日期": "N/A", "資料連結": url}
 
 data_list = []
-with st.spinner("正在從 MoneyDJ 精準抓取最新報價與百分比..."):
+with st.spinner("正在從 MoneyDJ 抓取最新報價..."):
     st.cache_data.clear()
     for name, url in FUNDS.items():
         info = fetch_moneydj_fund(name, url)
         data_list.append(info)
 
+# -----------------------------------------------------
+# UI 介面生成 (手機卡片排版)
+# -----------------------------------------------------
 if data_list:
-    st.markdown("### 📊 關鍵指標")
-    cols = st.columns(3)
-    for idx, item in enumerate(data_list):
-        col = cols[idx % 3]
-        with col:
-            if item['最新淨值'] == "N/A":
-                st.error(f"{item['基金名稱']} - 抓取失敗")
-            else:
-                st.metric(
-                    label=f"{item['基金名稱']} ({item['淨值日期']})",
-                    value=item['最新淨值'],
-                    delta=item['漲跌幅'],
-                    # 加入這一行！反轉預設顏色，變成紅漲綠跌
-                    delta_color="inverse" 
-                )
-
-    st.markdown("---")
-    st.markdown("### 📋 完整數據表")
+    st.write("") # 增加上方留白
     
-    df = pd.DataFrame(data_list)
-    st.dataframe(
-        df,
-        column_config={
-            "資料連結": st.column_config.LinkColumn("MoneyDJ 連結", display_text="點此查看")
-        },
-        use_container_width=True,
-        hide_index=True
-    )
+    for item in data_list:
+        if item['最新淨值'] == "N/A":
+            st.error(f"{item['基金名稱']} - 抓取失敗")
+            continue
+            
+        # 判斷漲跌 (有減號就是跌)
+        is_down = "-" in item['漲跌幅']
+        
+        # 台灣股市習慣：紅漲綠跌
+        color = "#21c45d" if is_down else "#ff4b4b"
+        arrow = "▼" if is_down else "▲"
+        
+        # 去除原始的負號，改由我們加上箭頭來顯示
+        display_change = item['漲跌幅'].replace("-", "")
+
+        # 利用 HTML 與 CSS 客製化卡片樣式
+        card_html = f"""
+        <div style="
+            background-color: #262730;
+            padding: 16px 20px;
+            border-radius: 8px;
+            border-left: 6px solid {color};
+            margin-bottom: 16px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        ">
+            <div style="color: #a3a8b8; font-size: 14px; margin-bottom: 6px;">
+                {item['基金名稱']} ({item['淨值日期']}) 
+                <a href="{item['資料連結']}" target="_blank" style="color: #a3a8b8; text-decoration: none; margin-left: 4px;">↗</a>
+            </div>
+            <div style="color: white; font-size: 32px; font-weight: bold; margin-bottom: 6px; font-family: monospace;">
+                {item['最新淨值']}
+            </div>
+            <div style="color: {color}; font-size: 16px; font-weight: 600;">
+                {arrow} {display_change}
+            </div>
+        </div>
+        """
+        # 渲染 HTML 卡片
+        st.markdown(card_html, unsafe_allow_html=True)
+
+    # 將詳細數據表收納進折疊選單中，避免在手機上佔用太多版面
+    st.markdown("---")
+    with st.expander("📋 查看完整數據表 (建議於電腦版觀看)"):
+        df = pd.DataFrame(data_list)
+        st.dataframe(
+            df,
+            column_config={
+                "資料連結": st.column_config.LinkColumn("MoneyDJ 連結", display_text="點此查看")
+            },
+            use_container_width=True,
+            hide_index=True
+        )

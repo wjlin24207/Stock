@@ -115,7 +115,7 @@ with st.spinner("正在從 MoneyDJ 抓取最新報價..."):
         data_list.append(info)
 
 # -----------------------------------------------------
-# UI 介面生成 (手機卡片排版)
+# UI 介面生成 (全卡片可點擊排版)
 # -----------------------------------------------------
 if data_list:
     st.write("") # 增加上方留白
@@ -125,42 +125,37 @@ if data_list:
             st.error(f"{item['基金名稱']} - 抓取失敗")
             continue
             
-        # 判斷漲跌 (有減號就是跌)
         is_down = "-" in item['漲跌幅']
-        
-        # 台灣股市習慣：紅漲綠跌
         color = "#21c45d" if is_down else "#ff4b4b"
         arrow = "▼" if is_down else "▲"
-        
-        # 去除原始的負號，改由我們加上箭頭來顯示
         display_change = item['漲跌幅'].replace("-", "")
 
-        # 利用 HTML 與 CSS 客製化卡片樣式
+        # 💡 重點修改：在最外層加上 <a> 標籤，並設定 text-decoration: none 來隱藏底線
         card_html = f"""
-        <div style="
-            background-color: #262730;
-            padding: 16px 20px;
-            border-radius: 8px;
-            border-left: 6px solid {color};
-            margin-bottom: 16px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        ">
-            <div style="color: #a3a8b8; font-size: 14px; margin-bottom: 6px;">
-                {item['基金名稱']} ({item['淨值日期']}) 
-                <a href="{item['資料連結']}" target="_blank" style="color: #a3a8b8; text-decoration: none; margin-left: 4px;">↗</a>
+        <a href="{item['資料連結']}" target="_blank" style="text-decoration: none; display: block;">
+            <div style="
+                background-color: #262730;
+                padding: 16px 20px;
+                border-radius: 8px;
+                border-left: 6px solid {color};
+                margin-bottom: 16px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                cursor: pointer;
+            ">
+                <div style="color: #a3a8b8; font-size: 14px; margin-bottom: 6px;">
+                    {item['基金名稱']} ({item['淨值日期']})
+                </div>
+                <div style="color: white; font-size: 32px; font-weight: bold; margin-bottom: 6px; font-family: monospace;">
+                    {item['最新淨值']}
+                </div>
+                <div style="color: {color}; font-size: 16px; font-weight: 600;">
+                    {arrow} {display_change}
+                </div>
             </div>
-            <div style="color: white; font-size: 32px; font-weight: bold; margin-bottom: 6px; font-family: monospace;">
-                {item['最新淨值']}
-            </div>
-            <div style="color: {color}; font-size: 16px; font-weight: 600;">
-                {arrow} {display_change}
-            </div>
-        </div>
+        </a>
         """
-        # 渲染 HTML 卡片
         st.markdown(card_html, unsafe_allow_html=True)
 
-    # 將詳細數據表收納進折疊選單中，避免在手機上佔用太多版面
     st.markdown("---")
     with st.expander("📋 查看完整數據表 (建議於電腦版觀看)"):
         df = pd.DataFrame(data_list)

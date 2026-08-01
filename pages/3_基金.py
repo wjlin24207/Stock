@@ -9,10 +9,10 @@ st.set_page_config(page_title="自選基金追蹤", layout="centered")
 st.markdown("## ⭐ 自選基金即時監控快照")
 
 FUNDS = {
-    "安聯收益成長-AM穩定月收": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=tlz64",
+    "安聯收益成長": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=tlz64",
     "貝萊德世界科技A10": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=shzv9",
-    "富蘭克林穩定月收益A": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=flz92",
-    "野村優質-累積(台幣)": "https://www.moneydj.com/funddj/ya/yp010000.djhtm?a=acic01",
+    "富坦穩定月收益": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=flz92",
+    "野村優質": "https://www.moneydj.com/funddj/ya/yp010000.djhtm?a=acic01",
     "安聯台灣科技": "https://www.moneydj.com/funddj/ya/yp010000.djhtm?a=acdd04",
     "統一奔騰": "https://www.moneydj.com/funddj/ya/yp010000.djhtm?a=acps10"
 }

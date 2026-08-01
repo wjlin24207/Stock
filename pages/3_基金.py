@@ -6,7 +6,7 @@ import pandas as pd
 # 頁面設定 (適合手機版，移除 wide layout)
 st.set_page_config(page_title="自選基金追蹤", layout="centered")
 
-st.markdown("## ⭐ 自選基金即時監控快照")
+st.markdown("## ⭐ 自選基金")
 
 FUNDS = {
     "安聯收益成長": "https://www.moneydj.com/funddj/ya/yp010001.djhtm?a=tlz64",

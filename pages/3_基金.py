@@ -8,6 +8,7 @@ st.set_page_config(page_title="自選基金追蹤", layout="centered")
 
 st.markdown("## ⭐ 自選基金")
 
+@st.cache_data(ttl=600, show_spinner=False)
 
 data_list = []
 with st.spinner("正在從 MoneyDJ 抓取最新報價..."):

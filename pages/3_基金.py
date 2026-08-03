@@ -12,7 +12,6 @@ st.markdown("## ⭐ 自選基金")
 
 data_list = []
 with st.spinner("正在從 MoneyDJ 抓取最新報價..."):
-    st.cache_data.clear()
     for name, url in FUNDS.items():
         info = fetch_moneydj_fund(name, url)
         data_list.append(info)

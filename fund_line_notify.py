@@ -9,8 +9,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # LINE 設定
 # ==========================================
 
-LINE_TOKEN = "H3L5JbmWTlvBBmn51kOXKYPAGxBAME90+2AikZ62Z91mQmpIbxPpd08FAyZHf0/aw47WIhHs6So6OZ2hphgxoGYxxEY6GZnRejPmoWru5vcMJiV02JH3AIfc7SrluRaxGBhYOy1k+Jlep1Kuy0NDgwdB04t89/1O/w1cDnyilFU="
-USER_ID = "U46b1da0a0dda2bba78d89e807f124fe5"
+LINE_TOKEN = os.environ["LINE_TOKEN"]
+USER_ID = os.environ["LINE_USER_ID"]
 
 # ==========================================
 # 基金清單

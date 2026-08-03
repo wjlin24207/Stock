@@ -1,0 +1,23 @@
+name: Fund Notify
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+
+  workflow_dispatch:
+
+jobs:
+  notify:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install requests beautifulsoup4 urllib3
+
+      - run: python fund_line_notify.py

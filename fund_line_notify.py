@@ -311,7 +311,7 @@ def main():
             name,
             url
         )
-
+        print(info)
         data_list.append(info)
 
     message = build_message(data_list)

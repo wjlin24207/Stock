@@ -105,9 +105,3 @@ def fetch_moneydj_fund(name, url):
     except Exception as e:
         return {"基金名稱": name, "最新淨值": "N/A", "漲跌幅": "N/A", "淨值日期": "N/A", "資料連結": url}
 
-data_list = []
-with st.spinner("正在從 MoneyDJ 抓取最新報價..."):
-    st.cache_data.clear()
-    for name, url in FUNDS.items():
-        info = fetch_moneydj_fund(name, url)
-        data_list.append(info)

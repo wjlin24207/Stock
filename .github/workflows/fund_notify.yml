@@ -20,4 +20,9 @@ jobs:
 
       - run: pip install requests beautifulsoup4 urllib3
 
-      - run: python fund_line_notify.py
+      - name: Run notify
+        env:
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: |
+          python fund_line_notify.py

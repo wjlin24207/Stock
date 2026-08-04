@@ -2,7 +2,7 @@ name: Fund Notify
 
 on:
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '13 9 * * *'
   #設定0 10 是台灣時間下午6點
   
   workflow_dispatch:

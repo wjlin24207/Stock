@@ -5,12 +5,17 @@ on:
 
 jobs:
   update:
+    permissions:
+      contents: write
+      
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          persist-credentials: true
+        
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

@@ -27,3 +27,14 @@ jobs:
       - name: Run ETF Update
         run: |
           python run_etf_update.py
+
+      - name: Commit Excel Files
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+          git add etf_holdings/
+
+          git diff --staged --quiet || git commit -m "Update ETF data"
+
+          git push

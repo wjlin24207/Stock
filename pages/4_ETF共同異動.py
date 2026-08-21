@@ -1,26 +1,61 @@
+from glob import glob
 import os
+
 import pandas as pd
 import streamlit as st
 
-st.title("ETF共同異動")
-
-file_path = (
-    "etf_holdings/"
-    "2026-08-21_common_daily_changes_summary.xlsx"
+st.set_page_config(
+    page_title="ETF共同異動",
+    layout="wide"
 )
 
-if os.path.exists(file_path):
+st.title("ETF共同異動")
 
-    df = pd.read_excel(
-        file_path,
-        engine="openpyxl"
-    )
+files = sorted(
+    glob(
+        "etf_holdings/*common_daily_changes_summary.xlsx"
+    ),
+    reverse=True
+)
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True
-    )
+if not files:
+    st.warning("找不到共同異動 Summary 檔案")
+    st.stop()
 
-else:
-    st.warning("找不到 Summary 檔")
+latest_file = files[0]
+
+update_time = os.path.getmtime(
+    latest_file
+)
+
+st.info(
+    f"最新檔案：{os.path.basename(latest_file)}"
+)
+
+df = pd.read_excel(
+    latest_file,
+    engine="openpyxl"
+)
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric(
+    "共同異動股票數",
+    len(df)
+)
+
+col2.metric(
+    "全部加碼",
+    (df["共同方向"] == "全部加碼").sum()
+)
+
+col3.metric(
+    "全部減碼",
+    (df["共同方向"] == "全部減碼").sum()
+)
+
+st.dataframe(
+    df,
+    use_container_width=True,
+    hide_index=True
+)

@@ -1508,8 +1508,8 @@ def build_common_daily_change_summary(
             "股票名稱": row["顯示股票名稱"],
             "異動ETF數": row["異動ETF數"],
             "共同方向": common_direction,
-            "加碼ETF": "\n•".join(add_list) if add_list else "-",
-            "減碼ETF": "\n•".join(reduce_list) if reduce_list else "-"
+            "加碼ETF": "• " + "\n• ".join(add_list) if add_list else "-",
+            "減碼ETF": "• " + "\n• ".join(reduce_list) if reduce_list else "-"
         })
 
     result = pd.DataFrame(rows)

@@ -1,0 +1,29 @@
+name: ETF Update
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packages
+        run: |
+          pip install -r requirements.txt
+
+      - name: Install Playwright Browser
+        run: |
+          playwright install chromium
+
+      - name: Run ETF Update
+        run: |
+          python run_etf_update.py

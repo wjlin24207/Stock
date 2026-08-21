@@ -6,7 +6,7 @@ st.title("ETF共同異動")
 
 file_path = (
     "etf_holdings/"
-    "2026-08-19_common_daily_changes_summary.xlsx"
+    "2026-08-21_common_daily_changes_summary.xlsx"
 )
 
 if os.path.exists(file_path):

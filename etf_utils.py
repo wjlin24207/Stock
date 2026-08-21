@@ -1807,8 +1807,12 @@ async def main_async():
                 summary_df = build_common_daily_change_summary(
                     common_change_df=common_change_df,
                     target_etfs=TARGET_COMMON_ETFS
-                )       
-            
+                )
+
+                logging.info(
+                    repr(summary_df["減碼ETF"].iloc[0])
+                )
+
                 summary_path = save_common_daily_change_summary(
                     summary_df
                 )

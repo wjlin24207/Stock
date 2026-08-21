@@ -1,6 +1,25 @@
+import os
+import pandas as pd
 import streamlit as st
-import etf_utils
 
 st.title("ETF共同異動")
 
-st.success("etf_utils 載入成功")
+file_path = (
+    "etf_holdings/"
+    "2026-08-19_common_daily_changes_summary.xlsx"
+)
+
+if os.path.exists(file_path):
+
+    df = pd.read_excel(
+        file_path,
+        engine="openpyxl"
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+else:
+    st.warning("找不到 Summary 檔")

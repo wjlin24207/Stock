@@ -1,8 +1,41 @@
 from glob import glob
 import os
-
+import requests
 import pandas as pd
 import streamlit as st
+
+
+if st.button("🔄 更新ETF資料"):
+
+    token = st.secrets["GITHUB_TOKEN"]
+
+    url = (
+        "https://api.github.com/repos/"
+        "wjlin24207/Stock/actions/workflows/"
+        "etf_update.yml/dispatches"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    payload = {
+        "ref": "main"
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload
+    )
+
+    if response.status_code == 204:
+        st.success("已送出 ETF 更新工作")
+    else:
+        st.error(
+            f"送出失敗：{response.status_code}"
+        )
 
 st.set_page_config(
     page_title="ETF共同異動",

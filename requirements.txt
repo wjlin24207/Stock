@@ -6,3 +6,5 @@ streamlit
 plotly
 playwright
 openpyxl
+html5lib
+lxml

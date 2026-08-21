@@ -1508,8 +1508,8 @@ def build_common_daily_change_summary(
             "股票名稱": row["顯示股票名稱"],
             "異動ETF數": row["異動ETF數"],
             "共同方向": common_direction,
-            "加碼ETF": "• " + "\n• ".join(add_list) if add_list else "-",
-            "減碼ETF": "• " + "\n• ".join(reduce_list) if reduce_list else "-"
+            "加碼ETF": "、".join(add_list) if add_list else "-",
+            "減碼ETF": "、".join(reduce_list) if reduce_list else "-"
         })
 
     result = pd.DataFrame(rows)
@@ -1807,10 +1807,6 @@ async def main_async():
                 summary_df = build_common_daily_change_summary(
                     common_change_df=common_change_df,
                     target_etfs=TARGET_COMMON_ETFS
-                )
-
-                logging.info(
-                    repr(summary_df["減碼ETF"].iloc[0])
                 )
 
                 summary_path = save_common_daily_change_summary(

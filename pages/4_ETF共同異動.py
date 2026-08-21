@@ -11,51 +11,138 @@ st.set_page_config(
 
 st.title("ETF共同異動")
 
-files = sorted(
-    glob(
-        "etf_holdings/*common_daily_changes_summary.xlsx"
-    ),
-    reverse=True
+
+def get_latest_file(pattern):
+    files = sorted(
+        glob(pattern),
+        reverse=True
+    )
+
+    if not files:
+        return None
+
+    return files[0]
+
+
+# =========================
+# 找最新檔案
+# =========================
+
+summary_file = get_latest_file(
+    "etf_holdings/*common_daily_changes_summary.xlsx"
 )
 
-if not files:
-    st.warning("找不到共同異動 Summary 檔案")
-    st.stop()
-
-latest_file = files[0]
-
-update_time = os.path.getmtime(
-    latest_file
+daily_file = get_latest_file(
+    "etf_holdings/*daily_changes_changed_only.xlsx"
 )
 
-st.info(
-    f"最新檔案：{os.path.basename(latest_file)}"
+holding_file = get_latest_file(
+    "etf_holdings/*common_holdings_all*.xlsx"
 )
 
-df = pd.read_excel(
-    latest_file,
-    engine="openpyxl"
+
+tab1, tab2, tab3 = st.tabs(
+    [
+        "共同異動 Summary",
+        "每日異動",
+        "共同持股"
+    ]
 )
 
-col1, col2, col3 = st.columns(3)
 
-col1.metric(
-    "共同異動股票數",
-    len(df)
-)
+# =========================
+# Tab1 Summary
+# =========================
 
-col2.metric(
-    "全部加碼",
-    (df["共同方向"] == "全部加碼").sum()
-)
+with tab1:
 
-col3.metric(
-    "全部減碼",
-    (df["共同方向"] == "全部減碼").sum()
-)
+    if summary_file:
 
-st.dataframe(
-    df,
-    use_container_width=True,
-    hide_index=True
-)
+        st.info(
+            f"最新檔案：{os.path.basename(summary_file)}"
+        )
+
+        df = pd.read_excel(
+            summary_file,
+            engine="openpyxl"
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "共同異動股票數",
+            len(df)
+        )
+
+        col2.metric(
+            "全部加碼",
+            (df["共同方向"] == "全部加碼").sum()
+        )
+
+        col3.metric(
+            "全部減碼",
+            (df["共同方向"] == "全部減碼").sum()
+        )
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+        st.warning("找不到共同異動 Summary 檔案")
+
+
+# =========================
+# Tab2 每日異動
+# =========================
+
+with tab2:
+
+    if daily_file:
+
+        st.info(
+            f"最新檔案：{os.path.basename(daily_file)}"
+        )
+
+        daily_df = pd.read_excel(
+            daily_file,
+            engine="openpyxl"
+        )
+
+        st.dataframe(
+            daily_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+        st.warning("找不到每日異動檔案")
+
+
+# =========================
+# Tab3 共同持股
+# =========================
+
+with tab3:
+
+    if holding_file:
+
+        st.info(
+            f"最新檔案：{os.path.basename(holding_file)}"
+        )
+
+        holding_df = pd.read_excel(
+            holding_file,
+            engine="openpyxl"
+        )
+
+        st.dataframe(
+            holding_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+        st.warning("找不到共同持股檔案")

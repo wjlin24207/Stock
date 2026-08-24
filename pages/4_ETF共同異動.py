@@ -198,8 +198,36 @@ with tab3:
 
         holding_df = pd.read_excel(
             holding_file,
-            engine="openpyxl"
+            engine="openpyxl",
+            dtype={
+                "股票代碼": str,
+            }
         )
+
+        # 隱藏 00981A_股票名稱、00991A_股票名稱等欄位
+        # 「顯示股票名稱」不會被刪除
+        etf_name_columns = [
+            col
+            for col in holding_df.columns
+            if col.endswith("_股票名稱")
+        ]
+
+        holding_df = holding_df.drop(
+            columns=etf_name_columns,
+            errors="ignore"
+        )
+
+        # 將「共同持有ETF」移到最後一欄
+        if "共同持有ETF" in holding_df.columns:
+            other_columns = [
+                col
+                for col in holding_df.columns
+                if col != "共同持有ETF"
+            ]
+
+            holding_df = holding_df[
+                other_columns + ["共同持有ETF"]
+            ]
 
         st.dataframe(
             holding_df,

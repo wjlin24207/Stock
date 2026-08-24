@@ -60,4 +60,3 @@ jobs:
           STREAMLIT_DASHBOARD_URL: ${{ secrets.STREAMLIT_DASHBOARD_URL }}
         run: |
           python etf_line_notify.py
-`

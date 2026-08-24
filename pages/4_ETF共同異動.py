@@ -162,6 +162,18 @@ with tab2:
             engine="openpyxl"
         )
 
+        # 每日異動頁面不顯示的欄位
+        daily_hidden_columns = [
+            "股票名稱_昨日",
+            "權重_昨日",
+            "股數_昨日",
+        ]
+
+        daily_df = daily_df.drop(
+            columns=daily_hidden_columns,
+            errors="ignore"
+        )
+
         st.dataframe(
             daily_df,
             use_container_width=True,

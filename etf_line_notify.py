@@ -21,11 +21,14 @@ LAST_UPDATE_FILE = os.path.join(
     "last_update.txt"
 )
 
-# 可在 GitHub Secrets 設定 STREAMLIT_DASHBOARD_URL
-# 若沒有設定，請把下方預設網址改成你實際的 Streamlit 網址
-DASHBOARD_URL = os.environ.get(
-    "STREAMLIT_DASHBOARD_URL",
-    "https://wjlinstock.streamlit.app/"
+# 優先使用 GitHub Secret 裡的 STREAMLIT_DASHBOARD_URL。
+# 如果 Secret 不存在或內容為空白，使用下方預設網址。
+DASHBOARD_URL = (
+    os.environ.get(
+        "STREAMLIT_DASHBOARD_URL",
+        ""
+    ).strip()
+    or "https://wjlinstock.streamlit.app/"
 )
 
 
@@ -224,7 +227,7 @@ def build_etf_message(
 
     message = "\n".join(lines)
 
-    # LINE 單一文字訊息上限為 5,000 字元
+    # LINE 單一文字訊息上限為 5,000 字元。
     return message[:5000]
 
 
@@ -285,6 +288,12 @@ def main():
     )
 
     update_time = get_last_update_time()
+
+    # 顯示實際使用的網址，方便在 GitHub Actions Log 檢查。
+    print(
+        "Streamlit Dashboard URL:",
+        repr(DASHBOARD_URL)
+    )
 
     message = build_etf_message(
         summary_df=summary_df,

@@ -85,11 +85,12 @@ def normalize_display_stock_code(value) -> str:
     text = str(value).strip()
 
     if text.endswith(".0"):
-        text[0=========
-讀取最後更新時間
-=========
+        text = text[:-2]
 
-_last_update_time() ->======================
+    return text
+
+
+# ==========================================
 # 清理股票名稱
 # ==========================================
 
@@ -110,14 +111,9 @@ def normalize_display_stock_name(value) -> str:
 # ==========================================
 
 def append_stock_section(
-    lines[:-2
-
-
-=========
-理股票名稱
-=========
-
-_on: str,
+    lines: list[str],
+    title: str,
+    icon: str,
     group_df: pd.DataFrame
 ):
     lines.append(

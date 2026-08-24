@@ -39,6 +39,14 @@ ETFS = {
         "url": "https://www.etfinfo.tw/etf/00985A/holdings",
         "expected_min_rows": 45,
     },
+    "00992A": {
+        "url": "https://www.etfinfo.tw/etf/00992A/holdings",
+        "expected_min_rows": 45,
+    },
+    "00990A": {
+        "url": "https://www.etfinfo.tw/etf/00990A/holdings",
+        "expected_min_rows": 45,
+    },
 }
 
 TARGET_COMMON_ETFS = [
@@ -48,6 +56,8 @@ TARGET_COMMON_ETFS = [
     "00982A",
     "00403A",
     "00985A",
+    "00992A",
+    "00990A",
 ]
 
 # 共同每日異動門檻：

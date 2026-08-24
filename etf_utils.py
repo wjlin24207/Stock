@@ -1879,6 +1879,12 @@ async def main_async():
 
     save_errors(errors)
 
+    update_path = save_last_update_time()
+
+    logging.info(
+        f"最後更新時間已儲存: {update_path}"
+    )
+
     logging.info("程式結束")
 
 

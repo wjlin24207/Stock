@@ -1077,11 +1077,7 @@ def find_common_holdings(
             .reset_index(drop=True)
         )
 
-    summary.insert(
-        0,
-        "共同持有ETF",
-        ",".join(target_etfs)
-    )
+    summary["共同持有ETF"] = ",".join(target_etfs)
 
     return summary
 

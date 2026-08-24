@@ -44,6 +44,24 @@ st.set_page_config(
 
 st.title("ETF共同異動")
 
+last_update = "未知"
+
+try:
+
+    with open(
+        "etf_holdings/last_update.txt",
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        last_update = f.read().strip()
+
+except Exception:
+    pass
+
+st.success(
+    f"✅ 最後更新時間：{last_update}"
+)
 
 def get_latest_file(pattern):
     files = sorted(

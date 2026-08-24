@@ -94,6 +94,29 @@ def today_string() -> str:
     return now_taipei().strftime("%Y-%m-%d")
 
 
+def save_last_update_time():
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    update_path = os.path.join(
+        OUTPUT_DIR,
+        "last_update.txt"
+    )
+
+    with open(
+        update_path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            now_taipei().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        )
+
+    return update_path
+
 # =========================
 # Edge 啟動工具
 # =========================

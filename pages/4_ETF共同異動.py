@@ -204,13 +204,14 @@ with tab3:
             }
         )
 
-        # 隱藏 00981A_股票名稱、00991A_股票名稱等欄位
-        # 「顯示股票名稱」不會被刪除
         # 隱藏各 ETF 的股票名稱與股數欄位
-        hidden_h[
+        # 保留「顯示股票名稱」及各 ETF 的權重
+        hidden[
 
-         col in holding_df.columns
-         col col in holding_df.columns
+ col in holding_df.columns
+ (
+.ol
+            for col in holding_df.columns
             if (
                 col.endswith("_股票名稱")
                 or col.endswith("_股數")
@@ -222,17 +223,19 @@ with tab3:
             errors="ignore"
         )
 
-
         # 將「共同持有ETF」移到最後一欄
         if "共同持有ETF" in holding_df.columns:
-            other_columns = [
-                col
-                for col in holding_df.columns
+            other[
+
+ col in holding_df.columns
+ (
+.               for col in holding_df.columns
                 if col != "共同持有ETF"
             ]
 
             holding_df = holding_df[
-                other_columns + ["共同持有ETF"]
+                other[
+_columns + 共同持有ETF"]
             ]
 
         st.dataframe(
@@ -243,3 +246,4 @@ with tab3:
 
     else:
         st.warning("找不到共同持股檔案")
+``

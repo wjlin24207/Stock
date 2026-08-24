@@ -206,11 +206,8 @@ with tab3:
 
         # 隱藏各 ETF 的股票名稱與股數欄位
         # 保留「顯示股票名稱」及各 ETF 的權重
-        hidden[
-
- col in holding_df.columns
- (
-.ol
+        hidden_holding_columns = [
+            col
             for col in holding_df.columns
             if (
                 col.endswith("_股票名稱")
@@ -225,17 +222,14 @@ with tab3:
 
         # 將「共同持有ETF」移到最後一欄
         if "共同持有ETF" in holding_df.columns:
-            other[
-
- col in holding_df.columns
- (
-.               for col in holding_df.columns
+            other_columns = [
+                col
+                for col in holding_df.columns
                 if col != "共同持有ETF"
             ]
 
             holding_df = holding_df[
-                other[
-_columns + 共同持有ETF"]
+                other_columns + ["共同持有ETF"]
             ]
 
         st.dataframe(

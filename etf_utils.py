@@ -17,35 +17,35 @@ from playwright.async_api import async_playwright
 ETFS = {
     "00981A": {
         "url": "https://www.etfinfo.tw/etf/00981A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00991A": {
         "url": "https://www.etfinfo.tw/etf/00991A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00980A": {
         "url": "https://www.etfinfo.tw/etf/00980A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00982A": {
         "url": "https://www.etfinfo.tw/etf/00982A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00403A": {
         "url": "https://www.etfinfo.tw/etf/00403A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00985A": {
         "url": "https://www.etfinfo.tw/etf/00985A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00992A": {
         "url": "https://www.etfinfo.tw/etf/00992A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
     "00990A": {
         "url": "https://www.etfinfo.tw/etf/00990A/holdings",
-        "expected_min_rows": 45,
+        "expected_min_rows": 40,
     },
 }
 

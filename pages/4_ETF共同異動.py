@@ -38,11 +38,11 @@ if st.button("🔄 更新ETF資料"):
         )
 
 st.set_page_config(
-    page_title="ETF共同異動",
+    page_title="主動ETF持股",
     layout="wide"
 )
 
-st.title("ETF共同異動")
+st.title("主動ETF持股")
 
 last_update = "未知"
 

@@ -176,54 +176,31 @@ with tab1:
             engine="openpyxl"
         )
 
-        # 清除共同方向文字前後空白
-        if "共同方向" in df.columns:
-            df["共同方向"] = (
-                df["共同方向"]
-                .astype(str)
-                .str.strip()
-            )
+        # 先計算加碼與減碼數量
+        increase_count = (
+            df["共同方向"]
+            .isin(["全部加碼", "全數加碼"])
+            .sum()
+        )
 
-            # 先計算各方向數量
-            increase_count = (
-                df["共同方向"]
-                .isin(["全部加碼", "全數加碼"])
-                .sum()
-            )
+        decrease_count = (
+            df["共同方向"]
+            .isin(["全部減碼", "全數減碼"])
+            .sum()
+        )
 
-            decrease_count = (
-                df["共同方向"]
-                .isin(["全部減碼", "全數減碼"])
-                .sum()
-            )
+        # 替共同方向加入 Emoji
+        df["共同方向"] = df["共同方向"].replace(
+            {
+                "全部加碼": "🟢 全部加碼",
+                "全數加碼": "🟢 全數加碼",
+                "全部減碼": "🔴 全部減碼",
+                "全數減碼": "🔴 全數減碼",
+                "混合": "🟡 混合",
+            }
+        )
 
-            mixed_count = (
-                df["共同方向"]
-                .isin(["混合", "混合異動"])
-                .sum()
-            )
-
-            # 替共同方向加入 Emoji
-            df["共同方向"] = df[
-                "共同方向"
-            ].replace(
-                {
-                    "全部加碼": "🟢 全部加碼",
-                    "全數加碼": "🟢 全數加碼",
-                    "全部減碼": "🔴 全部減碼",
-                    "全數減碼": "🔴 全數減碼",
-                    "混合": "🟡 混合",
-                    "混合異動": "🟡 混合異動",
-                }
-            )
-
-        else:
-            increase_count = 0
-            decrease_count = 0
-            mixed_count = 0
-
-        # 四個摘要統計方塊
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
 
         col1.metric(
             "共同異動股票數",
@@ -238,11 +215,6 @@ with tab1:
         col3.metric(
             "🔴 全部減碼",
             decrease_count
-        )
-
-        col4.metric(
-            "🟡 混合",
-            mixed_count
         )
 
         st.dataframe(

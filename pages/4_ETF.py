@@ -369,36 +369,54 @@ with tab4:
             # 隱藏不需要顯示的欄位
             # =========================
 
-            hidden_detail_columns = [
-                "資料來源",
-                "來源頁次",
-                "漲跌幅↕收盤價",
-                "權重↕股數",
-                "持股變化",
-                "00XXXA_股數",
-            ]
+            columns_to_remove = []
+
+            for column in detail_df.columns:
+                column_name = str(column).strip()
+
+                # 固定隱藏的欄位
+                if column_name in [
+                    "資料來源",
+                    "來源頁次",
+                    "持股變化",
+                    "00XXXA_股數",
+                ]:
+                    columns_to_remove.append(column)
+                    continue
+
+                # 隱藏「漲跌幅＋收盤價」合併欄位
+                if (
+                    "漲跌幅" in column_name
+                    and "收盤價" in column_name
+                ):
+                    columns_to_remove.append(column)
+                    continue
+
+                # 隱藏「權重＋股數」合併欄位
+                if (
+                    "權重" in column_name
+                    and "股數" in column_name
+                ):
+                    columns_to_remove.append(column)
 
             detail_df = detail_df.drop(
-                columns=hidden_detail_columns,
+                columns=columns_to_remove,
                 errors="ignore"
             )
 
-            # =========================
-            # 將抓取時間移到最後一欄
-            # =========================
+# =========================
+# 將抓取時間移到最後一欄
+# =========================
 
-            if "抓取時間" in detail_df.columns:
-                column_order = [
-                    column
-                    for column in detail_df.columns
-                    if column != "抓取時間"
-                ]
+if "抓取時間" in detail_df.columns:
+    column_order = [
+        column
+        for column in detail_df.columns
+        if column != "抓取時間"
+    ]
 
-                column_order.append("抓取時間")
-
-                detail_df = detail_df[
-                    column_order
-                ]
+    column_order.append("抓取時間")
+    detail_df = detail_df[column_order]
 
             # =========================
             # 顯示 ETF 摘要

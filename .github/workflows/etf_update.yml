@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Send ETF LINE Notification
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '33 11 * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '33 11 * * *'
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}

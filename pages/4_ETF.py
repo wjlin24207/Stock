@@ -176,6 +176,30 @@ with tab1:
             engine="openpyxl"
         )
 
+        # 先計算加碼與減碼數量
+        increase_count = (
+            df["共同方向"]
+            .isin(["全部加碼", "全數加碼"])
+            .sum()
+        )
+
+        decrease_count = (
+            df["共同方向"]
+            .isin(["全部減碼", "全數減碼"])
+            .sum()
+        )
+
+        # 替共同方向加入 Emoji
+        df["共同方向"] = df["共同方向"].replace(
+            {
+                "全部加碼": "🟢 全部加碼",
+                "全數加碼": "🟢 全數加碼",
+                "全部減碼": "🔴 全部減碼",
+                "全數減碼": "🔴 全數減碼",
+                "混合": "🟡 混合",
+            }
+        )
+
         col1, col2, col3 = st.columns(3)
 
         col1.metric(
@@ -184,13 +208,13 @@ with tab1:
         )
 
         col2.metric(
-            "全部加碼",
-            (df["共同方向"] == "全部加碼").sum()
+            "🟢 全部加碼",
+            increase_count
         )
 
         col3.metric(
-            "全部減碼",
-            (df["共同方向"] == "全部減碼").sum()
+            "🔴 全部減碼",
+            decrease_count
         )
 
         st.dataframe(
@@ -200,7 +224,9 @@ with tab1:
         )
 
     else:
-        st.warning("找不到共同異動 Summary 檔案")
+        st.warning(
+            "找不到共同異動 Summary 檔案"
+        )
 
 
 # =========================

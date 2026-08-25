@@ -40,6 +40,48 @@ jobs:
         run: |
           python run_etf_update.py
 
+      - name: Delete Excel Files Older Than 7 Days
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          folder = Path("etf_holdings")
+          today_taipei = datetime.now(
+              ZoneInfo("Asia/Taipei")
+          ).date()
+
+          cutoff_date = today_taipei - timedelta(days=7)
+
+          print(f"Taipei date: {today_taipei}")
+          print(f"Delete XLSX files before: {cutoff_date}")
+
+          deleted_count = 0
+
+          for file_path in folder.glob("*.xlsx"):
+              try:
+                  file_date = datetime.strptime(
+                      file_path.name[:10],
+                      "%Y-%m-%d"
+                  ).date()
+              except ValueError:
+                  print(
+                      f"Skip file without date prefix: "
+                      f"{file_path.name}"
+                  )
+                  continue
+
+              if file_date < cutoff_date:
+                  print(f"Delete: {file_path}")
+                  file_path.unlink()
+                  deleted_count += 1
+              else:
+                  print(f"Keep: {file_path}")
+
+          print(f"Deleted XLSX files: {deleted_count}")
+          PY
+
       - name: Commit Excel Files
         run: |
           git config --global user.name "github-actions"
@@ -48,8 +90,10 @@ jobs:
           git add etf_holdings/
 
           if ! git diff --staged --quiet; then
-            git commit -m "Update ETF data"
+            git commit -m "Update ETF data and clean old Excel files"
             git push
+          else
+            echo "No ETF file changes to commit."
           fi
 
       - name: Send ETF LINE Notification

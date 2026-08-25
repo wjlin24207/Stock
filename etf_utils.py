@@ -1524,13 +1524,13 @@ def build_common_daily_change_summary(
         bearish = {"減碼", "全數賣出"}
 
         if directions and all(d in bullish for d in directions):
-            common_direction = "🔴全部加碼"
+            common_direction = "全部加碼"
 
         elif directions and all(d in bearish for d in directions):
-            common_direction = "🟢全部減碼"
+            common_direction = "全部減碼"
 
         else:
-            common_direction = "🔀混合"
+            common_direction = "混合"
 
         rows.append({
             "股票代碼": row["股票代碼"],

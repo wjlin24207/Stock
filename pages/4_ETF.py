@@ -385,7 +385,7 @@ with tab4:
                     continue
 
                 # 隱藏「漲跌幅＋收盤價」合併欄位
-                # 不受箭頭或空格符號影響
+                # 不受空格、箭頭及排序符號影響
                 if (
                     "漲跌幅" in column_name
                     and "收盤價" in column_name
@@ -394,7 +394,7 @@ with tab4:
                     continue
 
                 # 隱藏「權重＋股數」合併欄位
-                # 不受箭頭或空格符號影響
+                # 不受空格、箭頭及排序符號影響
                 if (
                     "權重" in column_name
                     and "股數" in column_name
@@ -411,23 +411,56 @@ with tab4:
             # 將收盤價移到漲跌幅前面
             # =========================
 
+            # 尋找獨立的收盤價欄位
+            # 排除同時包含漲跌幅的合併欄位
+            price_column = next(
+                (
+                    column
+                    for column in detail_df.columns
+                    if (
+                        "收盤價" in str(column)
+                        and "漲跌幅" not in str(column)
+                    )
+                ),
+                None
+            )
+
+            # 尋找獨立的漲跌幅欄位
+            # 排除同時包含收盤價的合併欄位
+            change_column = next(
+                (
+                    column
+                    for column in detail_df.columns
+                    if (
+                        "漲跌幅" in str(column)
+                        and "收盤價" not in str(column)
+                    )
+                ),
+                None
+            )
+
             if (
-                "收盤價" in detail_df.columns
-                and "漲跌幅" in detail_df.columns
+                price_column is not None
+                and change_column is not None
             ):
                 column_order = list(
                     detail_df.columns
                 )
 
-                column_order.remove("收盤價")
-
-                change_index = column_order.index(
-                    "漲跌幅"
+                # 先從原位置移除收盤價
+                column_order.remove(
+                    price_column
                 )
 
+                # 找到漲跌幅的位置
+                change_index = column_order.index(
+                    change_column
+                )
+
+                # 將收盤價插入漲跌幅前面
                 column_order.insert(
                     change_index,
-                    "收盤價"
+                    price_column
                 )
 
                 detail_df = detail_df[
@@ -438,15 +471,24 @@ with tab4:
             # 將抓取時間移到最後一欄
             # =========================
 
-            if "抓取時間" in detail_df.columns:
+            capture_time_column = next(
+                (
+                    column
+                    for column in detail_df.columns
+                    if "抓取時間" in str(column)
+                ),
+                None
+            )
+
+            if capture_time_column is not None:
                 column_order = [
                     column
                     for column in detail_df.columns
-                    if column != "抓取時間"
+                    if column != capture_time_column
                 ]
 
                 column_order.append(
-                    "抓取時間"
+                    capture_time_column
                 )
 
                 detail_df = detail_df[

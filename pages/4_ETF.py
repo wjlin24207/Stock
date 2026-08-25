@@ -404,19 +404,19 @@ with tab4:
                 errors="ignore"
             )
 
-# =========================
-# 將抓取時間移到最後一欄
-# =========================
+            # =========================
+            # 將抓取時間移到最後一欄
+            # =========================
 
-if "抓取時間" in detail_df.columns:
-    column_order = [
-        column
-        for column in detail_df.columns
-        if column != "抓取時間"
-    ]
+            if "抓取時間" in detail_df.columns:
+                column_order = [
+                    column
+                    for column in detail_df.columns
+                    if column != "抓取時間"
+                ]
 
-    column_order.append("抓取時間")
-    detail_df = detail_df[column_order]
+                column_order.append("抓取時間")
+                detail_df = detail_df[column_order]
 
             # =========================
             # 顯示 ETF 摘要

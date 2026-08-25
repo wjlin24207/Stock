@@ -317,6 +317,7 @@ with tab4:
             key="selected_etf_detail"
         )
 
+        # 取得選擇 ETF 的最新檔案與日期
         selected_file = etf_files[selected_etf]["path"]
         selected_date = etf_files[selected_etf]["date"]
 
@@ -325,6 +326,7 @@ with tab4:
         )
 
         try:
+            # 讀取選擇 ETF 的完整持股檔案
             detail_df = pd.read_excel(
                 selected_file,
                 engine="openpyxl",
@@ -344,9 +346,14 @@ with tab4:
                 how="all"
             )
 
-            # 整理股票代碼
-            if "股票代碼" in detail_df.columns:
+            # 清除欄位名稱前後空白
+            detail_df.columns = [
+                str(column).strip()
+                for column in detail_df.columns
+            ]
 
+            # 整理股票代碼格式
+            if "股票代碼" in detail_df.columns:
                 detail_df["股票代碼"] = (
                     detail_df["股票代碼"]
                     .astype(str)
@@ -368,7 +375,7 @@ with tab4:
                 "漲跌幅↕收盤價",
                 "權重↕股數",
                 "持股變化",
-                "00XXXA_股數"
+                "00XXXA_股數",
             ]
 
             detail_df = detail_df.drop(
@@ -376,27 +383,27 @@ with tab4:
                 errors="ignore"
             )
 
-
             # =========================
-            # 將「抓取時間」移到最後一欄
+            # 將抓取時間移到最後一欄
             # =========================
 
             if "抓取時間" in detail_df.columns:
-
-                other_columns = [
-                    col
-                    for col in detail_df.columns
-                    if col != "抓取時間"
+                column_order = [
+                    column
+                    for column in detail_df.columns
+                    if column != "抓取時間"
                 ]
 
-                detail_df[
+                column_order.append("抓取時間")
 
-             col in detail_df.columns
-             colns + ["抓取時間"]
+                detail_df = detail_df[
+                    column_order
                 ]
 
-
+            # =========================
             # 顯示 ETF 摘要
+            # =========================
+
             col1, col2, col3 = st.columns(3)
 
             col1.metric(
@@ -414,7 +421,10 @@ with tab4:
                 selected_date
             )
 
-            # 搜尋股票
+            # =========================
+            # 搜尋持股
+            # =========================
+
             search_keyword = st.text_input(
                 "搜尋持股",
                 placeholder="輸入股票代碼或股票名稱",
@@ -424,7 +434,6 @@ with tab4:
             display_df = detail_df.copy()
 
             if search_keyword:
-
                 search_mask = (
                     display_df
                     .astype(str)
@@ -449,14 +458,20 @@ with tab4:
                 f"共 {len(display_df):,} 筆資料"
             )
 
-            # 顯示持股表格
+            # =========================
+            # 顯示詳細持股表格
+            # =========================
+
             st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True
             )
 
-            # 下載目前選取的 ETF 持股
+            # =========================
+            # 下載目前選擇的 ETF 持股
+            # =========================
+
             csv_data = display_df.to_csv(
                 index=False
             ).encode("utf-8-sig")
@@ -473,13 +488,11 @@ with tab4:
             )
 
         except Exception as e:
-
             st.error(
                 f"讀取 {selected_etf} 持股檔失敗：{e}"
             )
 
     else:
-
         st.warning(
             "找不到各 ETF 的完整持股檔案"
         )

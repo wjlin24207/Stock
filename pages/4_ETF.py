@@ -358,8 +358,16 @@ with tab4:
                     )
                 )
 
-            # 不顯示的欄位
+            # =========================
+            # 隱藏不需要顯示的欄位
+            # =========================
+
             hidden_detail_columns = [
+                "資料來源",
+                "來源頁次",
+                "漲跌幅↕收盤價",
+                "權重↕股數",
+                "持股變化",
                 "00XXXA_股數"
             ]
 
@@ -367,6 +375,26 @@ with tab4:
                 columns=hidden_detail_columns,
                 errors="ignore"
             )
+
+
+            # =========================
+            # 將「抓取時間」移到最後一欄
+            # =========================
+
+            if "抓取時間" in detail_df.columns:
+
+                other_columns = [
+                    col
+                    for col in detail_df.columns
+                    if col != "抓取時間"
+                ]
+
+                detail_df[
+
+             col in detail_df.columns
+             colns + ["抓取時間"]
+                ]
+
 
             # 顯示 ETF 摘要
             col1, col2, col3 = st.columns(3)

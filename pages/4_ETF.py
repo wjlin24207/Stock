@@ -516,38 +516,8 @@ with tab4:
                 selected_date
             )
 
-            # =========================
-            # 搜尋持股
-            # =========================
-
-            search_keyword = st.text_input(
-                "搜尋持股",
-                placeholder="輸入股票代碼或股票名稱",
-                key="etf_detail_search"
-            ).strip()
-
             display_df = detail_df.copy()
-
-            if search_keyword:
-                search_mask = (
-                    display_df
-                    .astype(str)
-                    .apply(
-                        lambda column:
-                        column.str.contains(
-                            search_keyword,
-                            case=False,
-                            na=False,
-                            regex=False
-                        )
-                    )
-                    .any(axis=1)
-                )
-
-                display_df = display_df[
-                    search_mask
-                ]
-
+            
             st.caption(
                 f"目前顯示 {selected_etf}，"
                 f"共 {len(display_df):,} 筆資料"

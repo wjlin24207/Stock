@@ -8,3 +8,4 @@ playwright
 openpyxl
 html5lib
 lxml
+re

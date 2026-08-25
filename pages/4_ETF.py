@@ -215,31 +215,216 @@ with tab2:
             f"最新檔案：{os.path.basename(daily_file)}"
         )
 
-        daily_df = pd.read_excel(
-            daily_file,
-            engine="openpyxl"
-        )
+        try:
+            # 讀取每日異動 Excel
+            daily_df = pd.read_excel(
+                daily_file,
+                engine="openpyxl",
+                dtype=str
+            )
 
-        # 每日異動頁面不顯示的欄位
-        daily_hidden_columns = [
-            "股票名稱_昨日",
-            "權重_昨日",
-            "股數_昨日",
-        ]
+            # 移除完全空白的資料列
+            daily_df = daily_df.dropna(
+                how="all"
+            )
 
-        daily_df = daily_df.drop(
-            columns=daily_hidden_columns,
-            errors="ignore"
-        )
+            # 移除完全空白的欄位
+            daily_df = daily_df.dropna(
+                axis=1,
+                how="all"
+            )
 
-        st.dataframe(
-            daily_df,
-            use_container_width=True,
-            hide_index=True
-        )
+            # 清除欄位名稱前後空白
+            daily_df.columns = [
+                str(column).strip()
+                for column in daily_df.columns
+            ]
+
+            # =========================
+            # 尋找 ETF 代碼欄位
+            # =========================
+
+            etf_column = next(
+                (
+                    column
+                    for column in daily_df.columns
+                    if str(column).strip() in [
+                        "ETF",
+                        "ETF代碼",
+                        "基金代碼",
+                    ]
+                ),
+                None
+            )
+
+            if etf_column is None:
+                st.error(
+                    "每日異動 Excel 找不到 ETF 代碼欄位"
+                )
+
+                st.write(
+                    "目前 Excel 欄位：",
+                    daily_df.columns.tolist()
+                )
+
+            else:
+                # 清理 ETF 代碼格式
+                daily_df[etf_column] = (
+                    daily_df[etf_column]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                )
+
+                # 移除空白或無效 ETF 代碼
+                daily_df = daily_df[
+                    ~daily_df[etf_column].isin(
+                        [
+                            "",
+                            "NAN",
+                            "NONE",
+                            "<NA>",
+                        ]
+                    )
+                ]
+
+                # 取得所有 ETF 代碼
+                etf_list = sorted(
+                    daily_df[etf_column]
+                    .dropna()
+                    .unique()
+                    .tolist()
+                )
+
+                if not etf_list:
+                    st.warning(
+                        "每日異動檔案內找不到 ETF 資料"
+                    )
+
+                else:
+                    # =========================
+                    # ETF 下拉選單
+                    # =========================
+
+                    selected_daily_etf = st.selectbox(
+                        "請選擇 ETF",
+                        options=etf_list,
+                        key="selected_daily_etf"
+                    )
+
+                    # 只保留目前選擇 ETF 的資料
+                    selected_daily_df = daily_df[
+                        daily_df[etf_column]
+                        == selected_daily_etf
+                    ].copy()
+
+                    # =========================
+                    # 隱藏不需要顯示的欄位
+                    # =========================
+
+                    daily_hidden_columns = [
+                        "股票名稱_昨日",
+                        "權重_昨日",
+                        "股數_昨日",
+                    ]
+
+                    selected_daily_df = (
+                        selected_daily_df.drop(
+                            columns=daily_hidden_columns,
+                            errors="ignore"
+                        )
+                    )
+
+                    # =========================
+                    # 整理股票代碼格式
+                    # =========================
+
+                    stock_code_column = next(
+                        (
+                            column
+                            for column
+                            in selected_daily_df.columns
+                            if "股票代碼" in str(column)
+                        ),
+                        None
+                    )
+
+                    if stock_code_column is not None:
+                        selected_daily_df[
+                            stock_code_column
+                        ] = (
+                            selected_daily_df[
+                                stock_code_column
+                            ]
+                            .astype(str)
+                            .str.strip()
+                            .str.replace(
+                                r"\.0$",
+                                "",
+                                regex=True
+                            )
+                        )
+
+                    # =========================
+                    # 將 ETF 欄位放在第一欄
+                    # =========================
+
+                    if etf_column in selected_daily_df.columns:
+                        column_order = [
+                            etf_column
+                        ] + [
+                            column
+                            for column
+                            in selected_daily_df.columns
+                            if column != etf_column
+                        ]
+
+                        selected_daily_df = (
+                            selected_daily_df[
+                                column_order
+                            ]
+                        )
+
+                    # =========================
+                    # 顯示摘要
+                    # =========================
+
+                    col1, col2 = st.columns(2)
+
+                    col1.metric(
+                        "ETF代碼",
+                        selected_daily_etf
+                    )
+
+                    col2.metric(
+                        "異動股票數",
+                        f"{len(selected_daily_df):,}"
+                    )
+
+                    st.caption(
+                        f"目前顯示 {selected_daily_etf}，"
+                        f"共 {len(selected_daily_df):,} 筆異動"
+                    )
+
+                    # =========================
+                    # 顯示每日異動表格
+                    # =========================
+
+                    st.dataframe(
+                        selected_daily_df,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+        except Exception as e:
+            st.error(
+                f"讀取每日異動檔案失敗：{e}"
+            )
 
     else:
-        st.warning("找不到每日異動檔案")
+        st.warning(
+            "找不到每日異動檔案"
+        )
 
 
 # =========================

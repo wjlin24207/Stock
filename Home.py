@@ -18,6 +18,7 @@ st.markdown(
     - 台股
     - 美股
     - 基金
+    - 主動ETF持股
     
     選擇後就會直接執行對應的 Streamlit 程式。
     """

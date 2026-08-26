@@ -1601,17 +1601,19 @@ def save_common_holdings(
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     date_str = today_string()
-    etf_name_part = "_".join(target_etfs)
 
     xlsx_path = os.path.join(
         OUTPUT_DIR,
-        f"{date_str}_common_holdings_all_{etf_name_part}.xlsx"
+        f"{date_str}_common_holdings_all.xlsx"
     )
 
-    common_df.to_excel(xlsx_path, index=False, engine="openpyxl")
+    common_df.to_excel(
+        xlsx_path,
+        index=False,
+        engine="openpyxl"
+    )
 
     return xlsx_path
-
 
 def save_daily_changes(change_dfs: list[pd.DataFrame]) -> str | None:
     non_empty_changes = [
@@ -1650,11 +1652,10 @@ def save_common_daily_changes(
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     date_str = today_string()
-    etf_name_part = "_".join(target_etfs)
 
     xlsx_path = os.path.join(
         OUTPUT_DIR,
-        f"{date_str}_common_daily_changes_min{min_etf_count}_{etf_name_part}.xlsx"
+        f"{date_str}_common_daily_changes_min{min_etf_count}.xlsx"
     )
 
     common_change_df.to_excel(

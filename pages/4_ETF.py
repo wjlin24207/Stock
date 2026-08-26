@@ -142,7 +142,7 @@ daily_file = get_latest_file(
 )
 
 holding_file = get_latest_file(
-    "etf_holdings/*common_holdings_all*.xlsx"
+    "etf_holdings/*_common_holdings_all.xlsx"
 )
 
 # 每一檔 ETF 最新的詳細持股檔

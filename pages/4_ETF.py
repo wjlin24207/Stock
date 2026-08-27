@@ -242,7 +242,10 @@ with tab2:
         )
 
         try:
+            # =========================
             # 讀取每日異動 Excel
+            # =========================
+
             daily_df = pd.read_excel(
                 daily_file,
                 engine="openpyxl",
@@ -265,6 +268,81 @@ with tab2:
                 str(column).strip()
                 for column in daily_df.columns
             ]
+
+            # =========================
+            # 建立統一股票名稱欄位
+            # =========================
+
+            today_name_column = "股票名稱_今日"
+            previous_name_column = "股票名稱_昨日"
+
+            if (
+                today_name_column in daily_df.columns
+                or previous_name_column in daily_df.columns
+            ):
+
+                if today_name_column in daily_df.columns:
+                    today_name = (
+                        daily_df[today_name_column]
+                        .astype("string")
+                        .str.strip()
+                    )
+
+                    today_name = today_name.mask(
+                        today_name
+                        .str.upper()
+                        .isin(
+                            [
+                                "",
+                                "NAN",
+                                "NONE",
+                                "<NA>",
+                            ]
+                        )
+                    )
+
+                else:
+                    today_name = pd.Series(
+                        pd.NA,
+                        index=daily_df.index,
+                        dtype="string"
+                    )
+
+                if previous_name_column in daily_df.columns:
+                    previous_name = (
+                        daily_df[previous_name_column]
+                        .astype("string")
+                        .str.strip()
+                    )
+
+                    previous_name = previous_name.mask(
+                        previous_name
+                        .str.upper()
+                        .isin(
+                            [
+                                "",
+                                "NAN",
+                                "NONE",
+                                "<NA>",
+                            ]
+                        )
+                    )
+
+                else:
+                    previous_name = pd.Series(
+                        pd.NA,
+                        index=daily_df.index,
+                        dtype="string"
+                    )
+
+                # 優先使用今日名稱
+                # 今日不存在時，例如全數賣出，改用昨日名稱
+                daily_df["股票名稱"] = (
+                    today_name.fillna(previous_name)
+                )
+
+            else:
+                daily_df["股票名稱"] = ""
 
             # =========================
             # 尋找 ETF 代碼欄位
@@ -294,7 +372,10 @@ with tab2:
                 )
 
             else:
+                # =========================
                 # 清理 ETF 代碼格式
+                # =========================
+
                 daily_df[etf_column] = (
                     daily_df[etf_column]
                     .astype(str)
@@ -350,6 +431,7 @@ with tab2:
 
                     daily_hidden_columns = [
                         "股票名稱_昨日",
+                        "股票名稱_今日",
                         "權重_昨日",
                         "股數_昨日",
                     ]
@@ -392,24 +474,55 @@ with tab2:
                         )
 
                     # =========================
-                    # 將 ETF 欄位放在第一欄
+                    # 重新安排欄位順序
                     # =========================
 
-                    if etf_column in selected_daily_df.columns:
-                        column_order = [
-                            etf_column
-                        ] + [
-                            column
-                            for column
-                            in selected_daily_df.columns
-                            if column != etf_column
-                        ]
+                    column_order = (
+                        selected_daily_df.columns.tolist()
+                    )
 
-                        selected_daily_df = (
-                            selected_daily_df[
-                                column_order
-                            ]
+                    # ETF 欄位移到第一欄
+                    if etf_column in column_order:
+                        column_order.remove(
+                            etf_column
                         )
+
+                        column_order.insert(
+                            0,
+                            etf_column
+                        )
+
+                    # 股票名稱移到股票代碼後面
+                    if "股票名稱" in column_order:
+                        column_order.remove(
+                            "股票名稱"
+                        )
+
+                        if (
+                            stock_code_column is not None
+                            and stock_code_column in column_order
+                        ):
+                            stock_name_position = (
+                                column_order.index(
+                                    stock_code_column
+                                ) + 1
+                            )
+
+                            column_order.insert(
+                                stock_name_position,
+                                "股票名稱"
+                            )
+
+                        else:
+                            column_order.append(
+                                "股票名稱"
+                            )
+
+                    selected_daily_df = (
+                        selected_daily_df[
+                            column_order
+                        ]
+                    )
 
                     # =========================
                     # 顯示摘要

@@ -6545,3 +6545,89 @@ Call log:
 2026-08-30 17:03:46,792 [WARNING] 錯誤報告已儲存: etf_holdings/2026-08-31_errors.xlsx
 2026-08-30 17:03:46,793 [INFO] 最後更新時間已儲存: etf_holdings/last_update.txt
 2026-08-30 17:03:46,793 [INFO] 程式結束
+2026-08-30 17:28:58,761 [INFO] 開始抓取主動式 ETF 完整持股明細
+2026-08-30 17:28:59,084 [INFO] 嘗試使用 channel='msedge' 啟動 Microsoft Edge
+2026-08-30 17:29:15,191 [INFO] 開始抓取完整持股: 00981A https://www.etfinfo.tw/etf/00981A/holdings
+2026-08-30 17:30:21,937 [ERROR] 00981A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00981A/holdings", waiting until "networkidle"
+
+2026-08-30 17:30:21,943 [INFO] 開始抓取完整持股: 00991A https://www.etfinfo.tw/etf/00991A/holdings
+2026-08-30 17:30:27,891 [INFO] 00991A 第 1 頁抓到 15 筆
+2026-08-30 17:30:29,342 [INFO] 00991A 第 2 頁抓到 15 筆
+2026-08-30 17:30:30,644 [INFO] 00991A 第 3 頁抓到 15 筆
+2026-08-30 17:30:31,932 [INFO] 00991A 第 4 頁抓到 5 筆
+2026-08-30 17:30:31,961 [INFO] 00991A 沒有下一頁，翻頁結束
+2026-08-30 17:30:32,091 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:30:32,094 [INFO] 00991A 完整抓取完成，去重後共 50 筆
+2026-08-30 17:30:32,241 [INFO] 00991A Excel 已儲存: etf_holdings/2026-08-31_00991A_full_holdings.xlsx
+2026-08-30 17:30:32,262 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:30:32,274 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:30:32,290 [INFO] 00991A 已完成每日異動比較，沒有異動，基準檔案：etf_holdings/2026-08-30_00991A_full_holdings.xlsx
+2026-08-30 17:30:32,290 [INFO] 開始抓取完整持股: 00980A https://www.etfinfo.tw/etf/00980A/holdings
+2026-08-30 17:31:32,400 [ERROR] 00980A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00980A/holdings", waiting until "networkidle"
+
+2026-08-30 17:31:32,400 [INFO] 開始抓取完整持股: 00982A https://www.etfinfo.tw/etf/00982A/holdings
+2026-08-30 17:32:32,495 [ERROR] 00982A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00982A/holdings", waiting until "networkidle"
+
+2026-08-30 17:32:32,496 [INFO] 開始抓取完整持股: 00403A https://www.etfinfo.tw/etf/00403A/holdings
+2026-08-30 17:33:32,608 [ERROR] 00403A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00403A/holdings", waiting until "networkidle"
+
+2026-08-30 17:33:32,608 [INFO] 開始抓取完整持股: 00985A https://www.etfinfo.tw/etf/00985A/holdings
+2026-08-30 17:34:32,712 [ERROR] 00985A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00985A/holdings", waiting until "networkidle"
+
+2026-08-30 17:34:32,712 [INFO] 開始抓取完整持股: 00992A https://www.etfinfo.tw/etf/00992A/holdings
+2026-08-30 17:35:32,810 [ERROR] 00992A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00992A/holdings", waiting until "networkidle"
+
+2026-08-30 17:35:32,810 [INFO] 開始抓取完整持股: 00990A https://www.etfinfo.tw/etf/00990A/holdings
+2026-08-30 17:36:32,914 [ERROR] 00990A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00990A/holdings", waiting until "networkidle"
+
+2026-08-30 17:36:32,914 [INFO] 開始抓取完整持股: 00405A https://www.etfinfo.tw/etf/00405A/holdings
+2026-08-30 17:36:38,034 [INFO] 00405A 第 1 頁抓到 15 筆
+2026-08-30 17:36:39,363 [INFO] 00405A 第 2 頁抓到 15 筆
+2026-08-30 17:36:40,652 [INFO] 00405A 第 3 頁抓到 15 筆
+2026-08-30 17:36:41,918 [INFO] 00405A 第 4 頁抓到 5 筆
+2026-08-30 17:36:41,944 [INFO] 00405A 沒有下一頁，翻頁結束
+2026-08-30 17:36:42,036 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:42,040 [INFO] 00405A 完整抓取完成，去重後共 50 筆
+2026-08-30 17:36:42,063 [INFO] 00405A Excel 已儲存: etf_holdings/2026-08-31_00405A_full_holdings.xlsx
+2026-08-30 17:36:42,090 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:42,101 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:42,117 [INFO] 00405A 已完成每日異動比較，沒有異動，基準檔案：etf_holdings/2026-08-30_00405A_full_holdings.xlsx
+2026-08-30 17:36:42,117 [INFO] 開始抓取完整持股: 00407A https://www.etfinfo.tw/etf/00407A/holdings
+2026-08-30 17:36:47,697 [INFO] 00407A 第 1 頁抓到 15 筆
+2026-08-30 17:36:49,023 [INFO] 00407A 第 2 頁抓到 15 筆
+2026-08-30 17:36:50,312 [INFO] 00407A 第 3 頁抓到 15 筆
+2026-08-30 17:36:51,600 [INFO] 00407A 第 4 頁抓到 7 筆
+2026-08-30 17:36:51,627 [INFO] 00407A 沒有下一頁，翻頁結束
+2026-08-30 17:36:51,685 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:51,689 [INFO] 00407A 完整抓取完成，去重後共 50 筆
+2026-08-30 17:36:51,706 [INFO] 00407A Excel 已儲存: etf_holdings/2026-08-31_00407A_full_holdings.xlsx
+2026-08-30 17:36:51,730 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:51,741 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:36:51,757 [INFO] 00407A 已完成每日異動比較，沒有異動，基準檔案：etf_holdings/2026-08-30_00407A_full_holdings.xlsx
+2026-08-30 17:36:51,757 [INFO] 開始抓取完整持股: 00993A https://www.etfinfo.tw/etf/00993A/holdings
+2026-08-30 17:37:51,861 [ERROR] 00993A 抓取失敗: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.etfinfo.tw/etf/00993A/holdings", waiting until "networkidle"
+
+2026-08-30 17:37:57,742 [INFO] 合併完整持股檔已儲存: etf_holdings/2026-08-31_active_etf_full_holdings_all.xlsx
+2026-08-30 17:37:57,742 [WARNING] 沒有產生每日異動檔案，代表沒有異動或找不到前一份持股檔。
+2026-08-30 17:37:57,743 [WARNING] 沒有找到至少 2 檔 ETF 同時異動的股票。
+2026-08-30 17:37:57,752 [INFO] 欄位判斷結果：股票代碼欄=代號 ↕名稱, 股票名稱欄=None, 權重欄=權重 ↓, 股數欄=股數 ↕
+2026-08-30 17:37:57,757 [WARNING] 指定 ETF 沒有找到全部共同持股。
+2026-08-30 17:37:57,762 [WARNING] 錯誤報告已儲存: etf_holdings/2026-08-31_errors.xlsx
+2026-08-30 17:37:57,762 [INFO] 最後更新時間已儲存: etf_holdings/last_update.txt
+2026-08-30 17:37:57,762 [INFO] 程式結束

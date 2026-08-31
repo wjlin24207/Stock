@@ -361,11 +361,13 @@ else:
     df = pd.DataFrame(table_rows).rename(columns={
         "代號": "代號/K線",
         "名稱": "名稱/成份股",
+        "iNAV": "淨值",
+        "溢折價率%": "折溢價%"
     })
 
     col_order = [
         "代號/K線", "名稱/成份股", "價格", "漲跌", "漲幅%",
-        "iNAV", "溢折價率%", "K", "D", "MA20", "均線狀態", "訊號",
+        "淨值", "溢折價%", "K", "D", "MA20", "均線狀態", "訊號",
     ]
     df = df[[c for c in col_order if c in df.columns]]
     df["代號_raw"] = df["代號/K線"]
@@ -400,8 +402,8 @@ else:
         "漲幅%": "{:+,.2f}%",
         "K": "{:.2f}",
         "D": "{:.2f}",
-        "iNAV": lambda value: "-" if pd.isna(value) else f"{value:,.2f}",
-        "溢折價率%": lambda value: "-" if pd.isna(value) else f"{value:+,.2f}%",
+        "淨值": lambda value: "-" if pd.isna(value) else f"{value:,.2f}",
+        "溢折價%": lambda value: "-" if pd.isna(value) else f"{value:+,.2f}%",
         "MA20": "{:.2f}",
     })
 
@@ -436,7 +438,7 @@ else:
             "color:#00B050;font-weight:bold" if value < 0 else ""
         )
 
-    styled = styled.map(color_premium, subset=["溢折價率%"])
+    styled = styled.map(color_premium, subset=["溢折價%"])
 
     st.markdown('''
     <style>

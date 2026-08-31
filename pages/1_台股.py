@@ -291,8 +291,8 @@ for sid in all_watchlist:
         continue
 
     etf_info = etf_inav_map.get(sid, {})
-    result["iNAV"] = etf_info.get("iNAV")
-    result["溢折價率%"] = etf_info.get("溢折價率%")
+    result["淨值"] = etf_info.get("iNAV")
+    result["溢折價%"] = etf_info.get("溢折價率%")
     result_map[sid] = result
 
 # 依照各自清單的排列順序建立畫面資料。
@@ -361,8 +361,6 @@ else:
     df = pd.DataFrame(table_rows).rename(columns={
         "代號": "代號/K線",
         "名稱": "名稱/成份股",
-        "iNAV": "淨值",
-        "溢折價率%": "折溢價%"
     })
 
     col_order = [

@@ -243,7 +243,6 @@ def process_kd_logic(stock_id, live_info, hists_all):
 # ===== 4. 上方卡片與下方表格使用獨立清單 =====
 # 只想顯示在上方卡片的股票，加入 card_watchlist。
 card_watchlist = [
-    "^TWII",
     "0056",
     "00878",
     "00919",

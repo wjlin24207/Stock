@@ -11,7 +11,7 @@ on:
     - cron: "33 12 * * *"
 
     # 台灣時間 21:13，第 3 次更新並發送 LINE
-    - cron: "11 13 * * *"
+    - cron: "13 13 * * *"
 
 
 jobs:
@@ -101,7 +101,7 @@ jobs:
           fi
 
       - name: Send ETF LINE Notification
-        if: github.event_name == 'schedule' && github.event.schedule == '11 13 * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '13 13 * * *'
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}

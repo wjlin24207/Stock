@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
 
   schedule:
-    # 台灣時間 20:13，第一次更新，不發 LINE
-    - cron: "13 12 * * *"
+    # 台灣時間 18:15，第一次更新，不發 LINE
+    - cron: "15 10 * * *"
 
-    # 台灣時間 20:33，第二次更新，不發 LINE
-    - cron: "33 12 * * *"
+    # 台灣時間 18:35，第二次更新，不發 LINE
+    - cron: "35 10 * * *"
 
-    # 台灣時間 21:13，第 3 次更新並發送 LINE
-    - cron: "13 13 * * *"
+    # 台灣時間 19:15，第 3 次更新並發送 LINE
+    - cron: "15 11 * * *"
 
 
 jobs:
@@ -101,7 +101,7 @@ jobs:
           fi
 
       - name: Send ETF LINE Notification
-        if: github.event_name == 'schedule' && github.event.schedule == '13 13 * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '15 11 * * *'
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}

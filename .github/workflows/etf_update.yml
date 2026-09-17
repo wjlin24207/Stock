@@ -101,7 +101,7 @@ jobs:
           fi
 
       - name: Send ETF LINE Notification
-        if: github.event_name == 'schedule' && github.event.schedule == '50 9 * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '50 8 * * *'
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}

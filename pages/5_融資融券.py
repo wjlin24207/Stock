@@ -174,17 +174,15 @@ def price_chart(detail_df):
 
     base = alt.Chart(chart_df).encode(
         x=alt.X(
-            "日期:O", 
-            title="日期", 
-            timeUnit="yearmonthdate", 
-            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+            "日期:O",
+            title="日期",
+            timeUnit="yearmonthdate",
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
         ),
         y=alt.Y(
             "收盤價:Q",
             title="收盤價（元）",
-            # 加大 padding 以免頂端文字被切到
             scale=alt.Scale(zero=False, nice=True, padding=50),
-            # 強制格式化為實際數字（含兩位小數與千分位），避免科學記號
             axis=alt.Axis(format=",.2f"),
         ),
     )
@@ -201,7 +199,6 @@ def price_chart(detail_df):
         ]
     )
 
-    # 將文字置於資料點上方 (dy=-14, baseline="bottom")，傾斜 45 度向上延伸
     labels = base.mark_text(
         dx=0,
         dy=-14,
@@ -212,7 +209,7 @@ def price_chart(detail_df):
         fontWeight="bold",
     ).encode(
         text=alt.Text("圖表標籤:N"),
-        angle=alt.value(315)  # 315 度即傾斜 -45 度
+        angle=alt.value(315),
     )
 
     chart = alt.layer(line, labels).properties(height=400)
@@ -222,10 +219,10 @@ def price_chart(detail_df):
 def balance_chart(df):
     base = alt.Chart(df).encode(
         x=alt.X(
-            "日期:O", 
-            title="日期", 
-            timeUnit="yearmonthdate", 
-            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+            "日期:O",
+            title="日期",
+            timeUnit="yearmonthdate",
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
         )
     )
 
@@ -298,10 +295,10 @@ def change_chart(df, field, title):
     data["方向"] = data[field].apply(lambda x: "增加" if x >= 0 else "減少")
     chart = alt.Chart(data).mark_bar().encode(
         x=alt.X(
-            "日期:O", 
-            title="日期", 
-            timeUnit="yearmonthdate", 
-            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+            "日期:O",
+            title="日期",
+            timeUnit="yearmonthdate",
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
         ),
         y=alt.Y(f"{field}:Q", title="每日變化（張）", axis=alt.Axis(format=",.0f")),
         color=alt.Color(
@@ -320,7 +317,6 @@ def change_chart(df, field, title):
 st.title("📊 台股融資融券查詢")
 st.caption("輸入上市股票代號，查看融資融券餘額及每日變化。")
 
-# 查詢條件排版在主頁上方
 st.header("查詢條件")
 col1, col2, col3 = st.columns(3)
 
@@ -368,4 +364,49 @@ if submit:
 
     st.markdown("### 股價走勢")
     if price_df.empty:
-        st.warning("此查詢期間找不到股價資料。
+        st.warning("此查詢期間找不到股價資料。")
+    else:
+        price_chart(detail_df)
+
+    st.markdown("### 融資與融券餘額走勢")
+    st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
+    balance_chart(df)
+
+    st.markdown("### 融資與融券每日變化")
+    left, right = st.columns(2)
+    with left:
+        change_chart(df, "融資變化", "融資每日變化")
+    with right:
+        change_chart(df, "融券變化", "融券每日變化")
+
+    with st.expander("查看每日明細與下載 CSV"):
+        display = detail_df.copy()
+        display["日期"] = display["日期"].dt.strftime("%Y-%m-%d")
+        display = display[
+            [
+                "日期", "股票代號", "股票名稱", "收盤價", "股價變化",
+                "融資餘額", "融資變化", "融券餘額", "融券變化", "參考指數"
+            ]
+        ].sort_values("日期", ascending=False)
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "收盤價": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                "股價變化": st.column_config.NumberColumn("股價變化", format="%+.2f"),
+                "融資餘額": st.column_config.NumberColumn("融資餘額", format="%d"),
+                "融資變化": st.column_config.NumberColumn("融資變化", format="%+d"),
+                "融券餘額": st.column_config.NumberColumn("融券餘額", format="%d"),
+                "融券變化": st.column_config.NumberColumn("融券變化", format="%+d"),
+                "參考指數": st.column_config.TextColumn("參考指數"),
+            },
+        )
+        csv_data = display.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button(
+            "下載 CSV", csv_data, f"{stock_id}_融資融券資料.csv", "text/csv"
+        )
+
+    st.info("今日餘額後續可能因調帳而修正，本工具僅供資料整理參考。")
+else:
+    st.info("請在上方輸入股票代號並按下「開始查詢」。")

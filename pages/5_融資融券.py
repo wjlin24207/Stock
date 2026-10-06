@@ -171,6 +171,10 @@ def price_chart(detail_df):
     chart_df["圖表標籤"] = chart_df["參考指數"].replace(
         {"資料不足": "", "持平，未分類": "持平"}
     )
+    
+    # 這裡將重複的連續標籤設為空白，避免畫面上字詞擠在一起
+    chart_df["前日標籤"] = chart_df["圖表標籤"].shift(1)
+    chart_df.loc[chart_df["圖表標籤"] == chart_df["前日標籤"], "圖表標籤"] = ""
 
     base = alt.Chart(chart_df).encode(
         x=alt.X(
@@ -183,7 +187,8 @@ def price_chart(detail_df):
             "收盤價:Q",
             title="收盤價（元）",
             scale=alt.Scale(zero=False, nice=True, padding=35),
-            axis=alt.Axis(format=","),
+            # 修改 format 為 ,.2f 強制顯示實際數字與兩位小數，避免科學記號
+            axis=alt.Axis(format=",.2f"),
         ),
     )
 
@@ -199,9 +204,13 @@ def price_chart(detail_df):
         ]
     )
 
+    # 加入 angle=-45 傾斜標籤
     labels = base.mark_text(
-        dy=18,
-        baseline="top",
+        dx=5,
+        dy=15,
+        angle=-45,
+        align="left",
+        baseline="middle",
         color="#FF6B6B",
         fontSize=12,
         fontWeight="bold",
@@ -228,7 +237,8 @@ def balance_chart(df):
             "融資餘額:Q",
             title="融資餘額（張）",
             scale=alt.Scale(zero=False, nice=True),
-            axis=alt.Axis(titleColor="#E15759", labelColor="#E15759", format=","),
+            # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
+            axis=alt.Axis(titleColor="#E15759", labelColor="#E15759", format=",.0f"),
         ),
         tooltip=[
             alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
@@ -241,7 +251,8 @@ def balance_chart(df):
             "融券餘額:Q",
             title="融券餘額（張）",
             scale=alt.Scale(zero=False, nice=True),
-            axis=alt.Axis(orient="right", titleColor="#4E79A7", labelColor="#4E79A7", format=","),
+            # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
+            axis=alt.Axis(orient="right", titleColor="#4E79A7", labelColor="#4E79A7", format=",.0f"),
         ),
         tooltip=[
             alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
@@ -297,7 +308,8 @@ def change_chart(df, field, title):
             timeUnit="yearmonthdate", 
             axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
         ),
-        y=alt.Y(f"{field}:Q", title="每日變化（張）", axis=alt.Axis(format=",")),
+        # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
+        y=alt.Y(f"{field}:Q", title="每日變化（張）", axis=alt.Axis(format=",.0f")),
         color=alt.Color(
             "方向:N",
             title="方向",
@@ -314,7 +326,6 @@ def change_chart(df, field, title):
 st.title("📊 台股融資融券查詢")
 st.caption("輸入上市股票代號，查看融資融券餘額及每日變化。")
 
-# 查詢條件移至主頁上方
 st.header("查詢條件")
 col1, col2, col3 = st.columns(3)
 

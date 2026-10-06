@@ -165,7 +165,7 @@ def fetch_stock_price(stock_id, start_date, end_date):
 
 
 def price_chart(detail_df):
-    """顯示股價走勢，並在各資料點上方標示參考指數。"""
+    """顯示股價走勢，並在各資料點下方標示參考指數。"""
     chart_df = detail_df[["日期", "收盤價", "參考指數"]].copy()
     chart_df = chart_df.dropna(subset=["收盤價"])
     chart_df["圖表標籤"] = chart_df["參考指數"].replace(
@@ -182,7 +182,7 @@ def price_chart(detail_df):
         y=alt.Y(
             "收盤價:Q",
             title="收盤價（元）",
-            scale=alt.Scale(zero=False, nice=True, padding=50),
+            scale=alt.Scale(zero=False, nice=True, padding=35),
             axis=alt.Axis(format=",.2f"),
         ),
     )
@@ -199,20 +199,18 @@ def price_chart(detail_df):
         ]
     )
 
+    # 回復預設樣式：水平文字，置於資料點下方
     labels = base.mark_text(
-        dx=0,
-        dy=-14,
-        align="left",
-        baseline="bottom",
+        dy=18,
+        baseline="top",
         color="#FF6B6B",
-        size=11,
+        fontSize=12,
         fontWeight="bold",
     ).encode(
-        text=alt.Text("圖表標籤:N"),
-        angle=alt.value(315),
+        text=alt.Text("圖表標籤:N")
     )
 
-    chart = alt.layer(line, labels).properties(height=400)
+    chart = alt.layer(line, labels).properties(height=380)
     st.altair_chart(chart, use_container_width=True)
 
 

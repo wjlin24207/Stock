@@ -95,7 +95,6 @@ def fetch_history(stock_id, start_date, end_date):
     return pd.DataFrame(results).drop_duplicates("日期").sort_values("日期").reset_index(drop=True)
 
 
-
 def roc_date_to_datetime(text):
     """將民國日期，例如 115/10/06，轉成 pandas 日期。"""
     try:
@@ -174,7 +173,12 @@ def price_chart(detail_df):
     )
 
     base = alt.Chart(chart_df).encode(
-        x=alt.X("日期:T", title="日期", axis=alt.Axis(format="%m/%d")),
+        x=alt.X(
+            "日期:O", 
+            title="日期", 
+            timeUnit="yearmonthdate", 
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+        ),
         y=alt.Y(
             "收盤價:Q",
             title="收盤價（元）",
@@ -208,9 +212,15 @@ def price_chart(detail_df):
     chart = alt.layer(line, labels).properties(height=380)
     st.altair_chart(chart, use_container_width=True)
 
+
 def balance_chart(df):
     base = alt.Chart(df).encode(
-        x=alt.X("日期:T", title="日期", axis=alt.Axis(format="%m/%d"))
+        x=alt.X(
+            "日期:O", 
+            title="日期", 
+            timeUnit="yearmonthdate", 
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+        )
     )
 
     margin = base.mark_line(point=True, color="#E15759", strokeWidth=2.5).encode(
@@ -281,7 +291,12 @@ def change_chart(df, field, title):
     data = df[["日期", field]].copy()
     data["方向"] = data[field].apply(lambda x: "增加" if x >= 0 else "減少")
     chart = alt.Chart(data).mark_bar().encode(
-        x=alt.X("日期:T", title="日期", axis=alt.Axis(format="%m/%d")),
+        x=alt.X(
+            "日期:O", 
+            title="日期", 
+            timeUnit="yearmonthdate", 
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
+        ),
         y=alt.Y(f"{field}:Q", title="每日變化（張）", axis=alt.Axis(format=",")),
         color=alt.Color(
             "方向:N",
@@ -299,7 +314,7 @@ def change_chart(df, field, title):
 st.title("📊 台股融資融券查詢")
 st.caption("輸入上市股票代號，查看融資融券餘額及每日變化。")
 
-# --- 將原本 st.sidebar 的部分移至此處，並改用 columns 排版 ---
+# 查詢條件移至主頁上方
 st.header("查詢條件")
 col1, col2, col3 = st.columns(3)
 
@@ -318,7 +333,6 @@ submit = st.button("開始查詢", type="primary", use_container_width=True)
 
 st.caption("目前版本：上市股票 ｜ 資料單位：張／交易單位")
 st.divider()
-# -------------------------------------------------------------
 
 if submit:
     if not stock_id or not stock_id.isdigit():
@@ -393,5 +407,4 @@ if submit:
 
     st.info("今日餘額後續可能因調帳而修正，本工具僅供資料整理參考。")
 else:
-    # 這裡的提示也順便幫你把「左側」改成「上方」了
     st.info("請在上方輸入股票代號並按下「開始查詢」。")

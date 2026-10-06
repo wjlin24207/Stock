@@ -9,6 +9,7 @@ import streamlit as st
 st.set_page_config(page_title="台股融資融券查詢", page_icon="📊", layout="wide")
 
 TWSE_API_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
+T86_API_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -41,6 +42,102 @@ def find_stock_row(data, stock_id):
         for row in table.get("data", []):
             if row and str(row[0]).strip() == stock_id:
                 return row
+    return None
+
+
+def find_t86_row(data, stock_id):
+    if not data:
+        return None, None
+    for table in data.get("tables", []):
+        fields = table.get("fields", [])
+        for row in table.get("data", []):
+            if row and str(row[0]).strip() == stock_id:
+                return fields, row
+    fields = data.get("fields", [])
+    for row in data.get("data", []):
+        if row and str(row[0]).strip() == stock_id:
+            return fields, row
+    return None, None
+
+
+def parse_t86_row(fields, row):
+    if not fields or not row:
+        return 0, 0, 0, 0
+
+    def get_val(col_name):
+        for i, f in enumerate(fields):
+            if f.strip() == col_name and i < len(row):
+                return to_int(row[i])
+        return None
+
+    # 外資：加總外陸資與外資自營商
+    f1 = get_val("外陸資買賣超股數(不含外資自營商)")
+    f2 = get_val("外資自營商買賣超股數")
+    if f1 is not None:
+        foreign = f1 + (f2 if f2 is not None else 0)
+    else:
+        foreign = 0
+        for i, f in enumerate(fields):
+            if "外" in f and "買賣超" in f and i < len(row):
+                foreign = to_int(row[i])
+                break
+
+    # 投信
+    trust = get_val("投信買賣超股數")
+    if trust is None:
+        for i, f in enumerate(fields):
+            if "投信" in f and "買賣超" in f and i < len(row):
+                trust = to_int(row[i])
+                break
+    if trust is None:
+        trust = 0
+
+    # 自營商
+    dealer = get_val("自營商買賣超股數")
+    if dealer is None:
+        d1 = get_val("自營商買賣超股數(自行買賣)")
+        d2 = get_val("自營商買賣超股數(避險)")
+        if d1 is not None or d2 is not None:
+            dealer = (d1 or 0) + (d2 or 0)
+        else:
+            dealer = 0
+
+    # 三大法人合計
+    total = get_val("三大法人買賣超股數")
+    if total is None:
+        for i, f in enumerate(fields):
+            if "三大法人" in f and "買賣超" in f and i < len(row):
+                total = to_int(row[i])
+                break
+    if total is None:
+        total = foreign + trust + dealer
+
+    # 換算為「張」（1 張 = 1000 股）
+    return (
+        int(round(foreign / 1000)),
+        int(round(trust / 1000)),
+        int(round(dealer / 1000)),
+        int(round(total / 1000)),
+    )
+
+
+@st.cache_data(ttl=43200, show_spinner=False)
+def fetch_institutional_one_day(stock_id, query_date):
+    params = {"date": query_date, "selectType": "ALL", "response": "json"}
+    try:
+        response = requests.get(T86_API_URL, params=params, headers=HEADERS, timeout=15)
+        response.raise_for_status()
+        fields, row = find_t86_row(response.json(), stock_id)
+        if row:
+            foreign, trust, dealer, total = parse_t86_row(fields, row)
+            return {
+                "外資買賣超": foreign,
+                "投信買賣超": trust,
+                "自營商買賣超": dealer,
+                "三大法人買賣超": total,
+            }
+    except (requests.RequestException, ValueError):
+        pass
     return None
 
 
@@ -80,13 +177,24 @@ def fetch_history(stock_id, start_date, end_date):
     message = st.empty()
 
     for index, day in enumerate(dates):
+        d_str = day.strftime("%Y%m%d")
         message.text(f"正在查詢 {day:%Y-%m-%d}...")
-        item = fetch_one_day(stock_id, day.strftime("%Y%m%d"))
+        item = fetch_one_day(stock_id, d_str)
+        inst = fetch_institutional_one_day(stock_id, d_str)
         if item:
+            if inst:
+                item.update(inst)
+            else:
+                item.update({
+                    "外資買賣超": 0,
+                    "投信買賣超": 0,
+                    "自營商買賣超": 0,
+                    "三大法人買賣超": 0,
+                })
             results.append(item)
         progress.progress((index + 1) / len(dates))
         if index < len(dates) - 1:
-            time.sleep(0.08)
+            time.sleep(0.1)
 
     progress.empty()
     message.empty()
@@ -96,7 +204,7 @@ def fetch_history(stock_id, start_date, end_date):
 
 
 def roc_date_to_datetime(text):
-    """將民國日期，例如 115/10/06，轉成 pandas 日期。"""
+    """將民國日期轉成 pandas 日期。"""
     try:
         year, month, day = str(text).strip().split("/")
         return pd.Timestamp(int(year) + 1911, int(month), int(day))
@@ -106,7 +214,7 @@ def roc_date_to_datetime(text):
 
 @st.cache_data(ttl=43200, show_spinner=False)
 def fetch_stock_price(stock_id, start_date, end_date):
-    """逐月取得 TWSE 個股每日收盤價與高低價，計算 5/10/20 日均線及 KD 指標。"""
+    """逐月取得 TWSE 個股每日收盤價與高低價，計算均線及 KD 指標。"""
     fetch_start = pd.Timestamp(start_date) - pd.Timedelta(days=60)
     month_starts = pd.date_range(
         start=fetch_start.replace(day=1),
@@ -267,7 +375,7 @@ def price_chart(detail_df):
 
 
 def kd_chart(detail_df):
-    """顯示 KD 指標走勢 (9, 3, 3)，顯示曲線資料點、K 值標籤，並標示 20/80 超買超賣參考線。"""
+    """顯示 KD 指標走勢 (9, 3, 3)。"""
     chart_df = detail_df.dropna(subset=["K", "D"]).copy()
     if chart_df.empty:
         return
@@ -281,7 +389,6 @@ def kd_chart(detail_df):
         )
     )
 
-    # K 線（紅線，附圓形實心點）
     line_k = base.mark_line(
         point=alt.OverlayMarkDef(filled=True, size=40),
         color="#E15759",
@@ -300,7 +407,6 @@ def kd_chart(detail_df):
         ],
     )
 
-    # D 線（藍線，附圓形實心點）
     line_d = base.mark_line(
         point=alt.OverlayMarkDef(filled=True, size=40),
         color="#4E79A7",
@@ -314,7 +420,6 @@ def kd_chart(detail_df):
         ],
     )
 
-    # 顯示 K 的數值標籤（位於 K 點上方）
     k_labels = base.mark_text(
         dy=-8,
         baseline="bottom",
@@ -326,7 +431,6 @@ def kd_chart(detail_df):
         text=alt.Text("K:Q", format=",.1f"),
     )
 
-    # 80 / 20 參考線
     rule_80 = alt.Chart(pd.DataFrame({"y": [80]})).mark_rule(
         strokeDash=[4, 4], color="#888888", strokeWidth=1
     ).encode(y="y:Q")
@@ -336,6 +440,31 @@ def kd_chart(detail_df):
     ).encode(y="y:Q")
 
     chart = alt.layer(rule_80, rule_20, line_k, line_d, k_labels).properties(height=200)
+    st.altair_chart(chart, use_container_width=True)
+
+
+def institutional_chart(df, field, title, height=250):
+    """繪製法人買賣超柱狀圖（紅買綠賣）。"""
+    data = df[["日期", field]].copy()
+    data["方向"] = data[field].apply(lambda x: "買超" if x >= 0 else "賣超")
+    chart = alt.Chart(data).mark_bar().encode(
+        x=alt.X(
+            "日期:O",
+            title="日期",
+            timeUnit="yearmonthdate",
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
+        ),
+        y=alt.Y(f"{field}:Q", title="買賣超（張）", axis=alt.Axis(format=",.0f")),
+        color=alt.Color(
+            "方向:N",
+            title="方向",
+            scale=alt.Scale(domain=["買超", "賣超"], range=["#E15759", "#59A14F"]),
+        ),
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
+            alt.Tooltip(f"{field}:Q", title=field, format=","),
+        ],
+    ).properties(title=title, height=height)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -465,7 +594,7 @@ if submit:
         st.warning("請輸入數字股票代號，例如 2330。")
         st.stop()
 
-    with st.spinner("正在取得證交所融資融券與股價資料..."):
+    with st.spinner("正在取得證交所融資融券、三大法人與股價資料..."):
         df = fetch_history(stock_id, start_date, end_date)
         price_df = fetch_stock_price(stock_id, start_date, end_date)
 
@@ -498,6 +627,26 @@ if submit:
     if not price_df.empty:
         kd_chart(detail_df)
 
+    # --- 三大法人買賣超 ---
+    st.markdown("### 三大法人買賣超")
+    st.caption("最新法人籌碼動向與每日買賣超走勢（單位：張，紅買綠賣）。")
+
+    i1, i2, i3, i4 = st.columns(4)
+    i1.metric("外資買賣超", f"{latest['外資買賣超']:+,.0f} 張")
+    i2.metric("投信買賣超", f"{latest['投信買賣超']:+,.0f} 張")
+    i3.metric("自營商買賣超", f"{latest['自營商買賣超']:+,.0f} 張")
+    i4.metric("三大法人合計", f"{latest['三大法人買賣超']:+,.0f} 張")
+
+    institutional_chart(df, "三大法人買賣超", "三大法人合計買賣超", height=260)
+
+    f_col, t_col, d_col = st.columns(3)
+    with f_col:
+        institutional_chart(df, "外資買賣超", "外資每日買賣超", height=220)
+    with t_col:
+        institutional_chart(df, "投信買賣超", "投信每日買賣超", height=220)
+    with d_col:
+        institutional_chart(df, "自營商買賣超", "自營商每日買賣超", height=220)
+
     st.markdown("### 融資與融券餘額走勢")
     st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
     balance_chart(df)
@@ -515,6 +664,7 @@ if submit:
         display = display[
             [
                 "日期", "股票代號", "股票名稱", "收盤價", "MA5", "MA10", "MA20", "K", "D", "股價變化",
+                "外資買賣超", "投信買賣超", "自營商買賣超", "三大法人買賣超",
                 "融資餘額", "融資變化", "融券餘額", "融券變化", "參考指數"
             ]
         ].sort_values("日期", ascending=False)
@@ -530,6 +680,10 @@ if submit:
                 "K": st.column_config.NumberColumn("K 值", format="%.2f"),
                 "D": st.column_config.NumberColumn("D 值", format="%.2f"),
                 "股價變化": st.column_config.NumberColumn("股價變化", format="%+.2f"),
+                "外資買賣超": st.column_config.NumberColumn("外資買賣超", format="%+d"),
+                "投信買賣超": st.column_config.NumberColumn("投信買賣超", format="%+d"),
+                "自營商買賣超": st.column_config.NumberColumn("自營商買賣超", format="%+d"),
+                "三大法人買賣超": st.column_config.NumberColumn("三大法人合計", format="%+d"),
                 "融資餘額": st.column_config.NumberColumn("融資餘額", format="%d"),
                 "融資變化": st.column_config.NumberColumn("融資變化", format="%+d"),
                 "融券餘額": st.column_config.NumberColumn("融券餘額", format="%d"),
@@ -539,9 +693,9 @@ if submit:
         )
         csv_data = display.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
-            "下載 CSV", csv_data, f"{stock_id}_融資融券資料.csv", "text/csv"
+            "下載 CSV", csv_data, f"{stock_id}_融資融券與三大法人資料.csv", "text/csv"
         )
 
-    st.info("今日餘額後續可能因調帳而修正，本工具僅供資料整理參考。")
+    st.info("今日餘額與法人數據後續可能因調帳而修正，本工具僅供資料整理參考。")
 else:
     st.info("請在上方輸入股票代號並按下「開始查詢」。")

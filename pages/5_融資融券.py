@@ -106,8 +106,7 @@ def roc_date_to_datetime(text):
 
 @st.cache_data(ttl=43200, show_spinner=False)
 def fetch_stock_price(stock_id, start_date, end_date):
-    """逐月取得 TWSE 個股每日收盤價，計算 5/10/20 日均線，並篩選指定日期範圍。"""
-    # 往前多抓約 60 天，確保有足夠的交易日計算 20 日均線 (月線)
+    """逐月取得 TWSE 個股每日收盤價與高低價，計算 5/10/20 日均線及 KD 指標。"""
     fetch_start = pd.Timestamp(start_date) - pd.Timedelta(days=60)
     month_starts = pd.date_range(
         start=fetch_start.replace(day=1),
@@ -141,29 +140,61 @@ def fetch_stock_price(stock_id, start_date, end_date):
         try:
             date_index = fields.index("日期")
             close_index = fields.index("收盤價")
+            high_index = fields.index("最高價")
+            low_index = fields.index("最低價")
         except ValueError:
             continue
 
         for row in payload.get("data", []):
-            if len(row) <= max(date_index, close_index):
+            if len(row) <= max(date_index, close_index, high_index, low_index):
                 continue
             trade_date = roc_date_to_datetime(row[date_index])
             close_price = pd.to_numeric(
                 str(row[close_index]).replace(",", "").replace("--", ""),
                 errors="coerce",
             )
-            if pd.notna(trade_date) and pd.notna(close_price):
-                records.append({"日期": trade_date, "收盤價": float(close_price)})
+            high_price = pd.to_numeric(
+                str(row[high_index]).replace(",", "").replace("--", ""),
+                errors="coerce",
+            )
+            low_price = pd.to_numeric(
+                str(row[low_index]).replace(",", "").replace("--", ""),
+                errors="coerce",
+            )
+            if pd.notna(trade_date) and pd.notna(close_price) and pd.notna(high_price) and pd.notna(low_price):
+                records.append({
+                    "日期": trade_date,
+                    "收盤價": float(close_price),
+                    "最高價": float(high_price),
+                    "最低價": float(low_price),
+                })
 
     if not records:
-        return pd.DataFrame(columns=["日期", "收盤價", "MA5", "MA10", "MA20"])
+        return pd.DataFrame(columns=["日期", "收盤價", "MA5", "MA10", "MA20", "K", "D"])
 
     price_df = pd.DataFrame(records).drop_duplicates("日期").sort_values("日期").reset_index(drop=True)
 
-    # 計算移動平均線
+    # 計算均線
     price_df["MA5"] = price_df["收盤價"].rolling(window=5).mean()
     price_df["MA10"] = price_df["收盤價"].rolling(window=10).mean()
     price_df["MA20"] = price_df["收盤價"].rolling(window=20).mean()
+
+    # 計算 KD 指標 (9, 3, 3)
+    low9 = price_df["最低價"].rolling(window=9).min()
+    high9 = price_df["最高價"].rolling(window=9).max()
+    denom = high9 - low9
+    rsv = ((price_df["收盤價"] - low9) / denom.replace(0, pd.NA) * 100).fillna(50)
+
+    k_list, d_list = [], []
+    k_val, d_val = 50.0, 50.0
+    for r in rsv:
+        k_val = (2 / 3) * k_val + (1 / 3) * float(r)
+        d_val = (2 / 3) * d_val + (1 / 3) * k_val
+        k_list.append(k_val)
+        d_list.append(d_val)
+
+    price_df["K"] = k_list
+    price_df["D"] = d_list
 
     mask = (
         (price_df["日期"] >= pd.Timestamp(start_date))
@@ -189,7 +220,6 @@ def price_chart(detail_df):
         )
     )
 
-    # 主收盤價線
     line_close = base.mark_line(
         point=alt.OverlayMarkDef(filled=True, size=55),
         color="#F2B134",
@@ -211,22 +241,16 @@ def price_chart(detail_df):
         ],
     )
 
-    # 5日均線 (綠色)
     line_ma5 = base.mark_line(color="#2CA02C", strokeWidth=1.5).encode(
         y=alt.Y("MA5:Q")
     )
-
-    # 10日均線 (藍色)
     line_ma10 = base.mark_line(color="#1F77B4", strokeWidth=1.5).encode(
         y=alt.Y("MA10:Q")
     )
-
-    # 20日均線 (紫色)
     line_ma20 = base.mark_line(color="#9467BD", strokeWidth=1.5).encode(
         y=alt.Y("MA20:Q")
     )
 
-    # 水平文字標籤（點的下方）
     labels = base.mark_text(
         dy=18,
         baseline="top",
@@ -239,6 +263,59 @@ def price_chart(detail_df):
     )
 
     chart = alt.layer(line_close, line_ma5, line_ma10, line_ma20, labels).properties(height=380)
+    st.altair_chart(chart, use_container_width=True)
+
+
+def kd_chart(detail_df):
+    """顯示 KD 指標走勢 (9, 3, 3)，並標示 20/80 超買超賣參考線。"""
+    chart_df = detail_df.dropna(subset=["K", "D"]).copy()
+    if chart_df.empty:
+        return
+
+    base = alt.Chart(chart_df).encode(
+        x=alt.X(
+            "日期:O",
+            title="日期",
+            timeUnit="yearmonthdate",
+            axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
+        )
+    )
+
+    # K 線 (紅橘色)
+    line_k = base.mark_line(color="#E15759", strokeWidth=2).encode(
+        y=alt.Y(
+            "K:Q",
+            title="KD 指標",
+            scale=alt.Scale(domain=[0, 100]),
+            axis=alt.Axis(format=",.0f"),
+        ),
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
+            alt.Tooltip("K:Q", title="K 值", format=",.2f"),
+            alt.Tooltip("D:Q", title="D 值", format=",.2f"),
+        ],
+    )
+
+    # D 線 (藍色)
+    line_d = base.mark_line(color="#4E79A7", strokeWidth=2).encode(
+        y=alt.Y("D:Q"),
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
+            alt.Tooltip("K:Q", title="K 值", format=",.2f"),
+            alt.Tooltip("D:Q", title="D 值", format=",.2f"),
+        ],
+    )
+
+    # 80 / 20 參考線
+    rule_80 = alt.Chart(pd.DataFrame({"y": [80]})).mark_rule(
+        strokeDash=[4, 4], color="#888888", strokeWidth=1
+    ).encode(y="y:Q")
+
+    rule_20 = alt.Chart(pd.DataFrame({"y": [20]})).mark_rule(
+        strokeDash=[4, 4], color="#888888", strokeWidth=1
+    ).encode(y="y:Q")
+
+    chart = alt.layer(rule_80, rule_20, line_k, line_d).properties(height=180)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -283,8 +360,8 @@ def balance_chart(df):
 
 
 def add_reference_signal(margin_df, price_df):
-    """合併收盤價與均線，並依前一交易日的價、資、券變化產生參考指數。"""
-    merge_cols = [c for c in ["日期", "收盤價", "MA5", "MA10", "MA20"] if c in price_df.columns]
+    """合併收盤價、均線與 KD，並依前一交易日的價、資、券變化產生參考指數。"""
+    merge_cols = [c for c in ["日期", "收盤價", "MA5", "MA10", "MA20", "K", "D"] if c in price_df.columns]
     result = margin_df.merge(price_df[merge_cols], on="日期", how="left")
     result = result.sort_values("日期").reset_index(drop=True)
     result["前日收盤價"] = result["收盤價"].shift(1)
@@ -396,6 +473,12 @@ if submit:
     else:
         price_chart(detail_df)
 
+    # 獨立放在股價走勢正下方的 KD 指標
+    st.markdown("### KD 指標 (9, 3, 3)")
+    st.caption("🔴 紅線：K 值 ｜ 🔵 藍線：D 值 ｜ 灰虛線：80 超買線、20 超賣線")
+    if not price_df.empty:
+        kd_chart(detail_df)
+
     st.markdown("### 融資與融券餘額走勢")
     st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
     balance_chart(df)
@@ -412,7 +495,7 @@ if submit:
         display["日期"] = display["日期"].dt.strftime("%Y-%m-%d")
         display = display[
             [
-                "日期", "股票代號", "股票名稱", "收盤價", "MA5", "MA10", "MA20", "股價變化",
+                "日期", "股票代號", "股票名稱", "收盤價", "MA5", "MA10", "MA20", "K", "D", "股價變化",
                 "融資餘額", "融資變化", "融券餘額", "融券變化", "參考指數"
             ]
         ].sort_values("日期", ascending=False)
@@ -425,6 +508,8 @@ if submit:
                 "MA5": st.column_config.NumberColumn("5日線", format="%.2f"),
                 "MA10": st.column_config.NumberColumn("10日線", format="%.2f"),
                 "MA20": st.column_config.NumberColumn("20日線", format="%.2f"),
+                "K": st.column_config.NumberColumn("K 值", format="%.2f"),
+                "D": st.column_config.NumberColumn("D 值", format="%.2f"),
                 "股價變化": st.column_config.NumberColumn("股價變化", format="%+.2f"),
                 "融資餘額": st.column_config.NumberColumn("融資餘額", format="%d"),
                 "融資變化": st.column_config.NumberColumn("融資變化", format="%+d"),

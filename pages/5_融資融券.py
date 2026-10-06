@@ -165,16 +165,12 @@ def fetch_stock_price(stock_id, start_date, end_date):
 
 
 def price_chart(detail_df):
-    """顯示股價走勢，並在各資料點下方標示參考指數。"""
+    """顯示股價走勢，並在各資料點上方標示參考指數。"""
     chart_df = detail_df[["日期", "收盤價", "參考指數"]].copy()
     chart_df = chart_df.dropna(subset=["收盤價"])
     chart_df["圖表標籤"] = chart_df["參考指數"].replace(
         {"資料不足": "", "持平，未分類": "持平"}
     )
-    
-    # 將重複的連續標籤設為空白，避免畫面上字詞擠在一起
-    chart_df["前日標籤"] = chart_df["圖表標籤"].shift(1)
-    chart_df.loc[chart_df["圖表標籤"] == chart_df["前日標籤"], "圖表標籤"] = ""
 
     base = alt.Chart(chart_df).encode(
         x=alt.X(
@@ -186,7 +182,9 @@ def price_chart(detail_df):
         y=alt.Y(
             "收盤價:Q",
             title="收盤價（元）",
-            scale=alt.Scale(zero=False, nice=True, padding=35),
+            # 加大 padding 以免頂端文字被切到
+            scale=alt.Scale(zero=False, nice=True, padding=50),
+            # 強制格式化為實際數字（含兩位小數與千分位），避免科學記號
             axis=alt.Axis(format=",.2f"),
         ),
     )
@@ -203,20 +201,21 @@ def price_chart(detail_df):
         ]
     )
 
+    # 將文字置於資料點上方 (dy=-14, baseline="bottom")，傾斜 45 度向上延伸
     labels = base.mark_text(
-        dx=5,
-        dy=15,
+        dx=0,
+        dy=-14,
         align="left",
-        baseline="middle",
+        baseline="bottom",
         color="#FF6B6B",
-        size=12,
+        size=11,
         fontWeight="bold",
     ).encode(
         text=alt.Text("圖表標籤:N"),
-        angle=alt.value(315) # 315度即為 -45度，放在 encode 內避免 schema error
+        angle=alt.value(315)  # 315 度即傾斜 -45 度
     )
 
-    chart = alt.layer(line, labels).properties(height=380)
+    chart = alt.layer(line, labels).properties(height=400)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -321,6 +320,7 @@ def change_chart(df, field, title):
 st.title("📊 台股融資融券查詢")
 st.caption("輸入上市股票代號，查看融資融券餘額及每日變化。")
 
+# 查詢條件排版在主頁上方
 st.header("查詢條件")
 col1, col2, col3 = st.columns(3)
 
@@ -368,49 +368,4 @@ if submit:
 
     st.markdown("### 股價走勢")
     if price_df.empty:
-        st.warning("此查詢期間找不到股價資料。")
-    else:
-        price_chart(detail_df)
-
-    st.markdown("### 融資與融券餘額走勢")
-    st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
-    balance_chart(df)
-
-    st.markdown("### 融資與融券每日變化")
-    left, right = st.columns(2)
-    with left:
-        change_chart(df, "融資變化", "融資每日變化")
-    with right:
-        change_chart(df, "融券變化", "融券每日變化")
-
-    with st.expander("查看每日明細與下載 CSV"):
-        display = detail_df.copy()
-        display["日期"] = display["日期"].dt.strftime("%Y-%m-%d")
-        display = display[
-            [
-                "日期", "股票代號", "股票名稱", "收盤價", "股價變化",
-                "融資餘額", "融資變化", "融券餘額", "融券變化", "參考指數"
-            ]
-        ].sort_values("日期", ascending=False)
-        st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "收盤價": st.column_config.NumberColumn("收盤價", format="%.2f"),
-                "股價變化": st.column_config.NumberColumn("股價變化", format="%+.2f"),
-                "融資餘額": st.column_config.NumberColumn("融資餘額", format="%d"),
-                "融資變化": st.column_config.NumberColumn("融資變化", format="%+d"),
-                "融券餘額": st.column_config.NumberColumn("融券餘額", format="%d"),
-                "融券變化": st.column_config.NumberColumn("融券變化", format="%+d"),
-                "參考指數": st.column_config.TextColumn("參考指數"),
-            },
-        )
-        csv_data = display.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            "下載 CSV", csv_data, f"{stock_id}_融資融券資料.csv", "text/csv"
-        )
-
-    st.info("今日餘額後續可能因調帳而修正，本工具僅供資料整理參考。")
-else:
-    st.info("請在上方輸入股票代號並按下「開始查詢」。")
+        st.warning("此查詢期間找不到股價資料。

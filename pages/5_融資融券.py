@@ -121,8 +121,7 @@ def parse_t86_row(fields, row):
     )
 
 
-@st.cache_data(ttl=43200, show_spinner=False)
-def fetch_institutional_one_day(stock_id, query_date):
+def _fetch_institutional_api(stock_id, query_date):
     params = {"date": query_date, "selectType": "ALL", "response": "json"}
     try:
         response = requests.get(T86_API_URL, params=params, headers=HEADERS, timeout=15)
@@ -142,7 +141,18 @@ def fetch_institutional_one_day(stock_id, query_date):
 
 
 @st.cache_data(ttl=43200, show_spinner=False)
-def fetch_one_day(stock_id, query_date):
+def _fetch_institutional_cached(stock_id, query_date):
+    return _fetch_institutional_api(stock_id, query_date)
+
+
+def fetch_institutional_one_day(stock_id, query_date):
+    # 若為今天，不走快取，直接抓最新數據
+    if query_date == date.today().strftime("%Y%m%d"):
+        return _fetch_institutional_api(stock_id, query_date)
+    return _fetch_institutional_cached(stock_id, query_date)
+
+
+def _fetch_one_day_api(stock_id, query_date):
     params = {"date": query_date, "selectType": "ALL", "response": "json"}
     try:
         response = requests.get(TWSE_API_URL, params=params, headers=HEADERS, timeout=15)
@@ -170,6 +180,18 @@ def fetch_one_day(stock_id, query_date):
     }
 
 
+@st.cache_data(ttl=43200, show_spinner=False)
+def _fetch_one_day_cached(stock_id, query_date):
+    return _fetch_one_day_api(stock_id, query_date)
+
+
+def fetch_one_day(stock_id, query_date):
+    # 若為今天，不走快取，直接抓最新數據
+    if query_date == date.today().strftime("%Y%m%d"):
+        return _fetch_one_day_api(stock_id, query_date)
+    return _fetch_one_day_cached(stock_id, query_date)
+
+
 def fetch_history(stock_id, start_date, end_date):
     dates = weekdays(start_date, end_date)
     results = []
@@ -194,7 +216,7 @@ def fetch_history(stock_id, start_date, end_date):
             results.append(item)
         progress.progress((index + 1) / len(dates))
         if index < len(dates) - 1:
-            time.sleep(0.1)
+            time.sleep(0.08)
 
     progress.empty()
     message.empty()
@@ -212,7 +234,7 @@ def roc_date_to_datetime(text):
         return pd.NaT
 
 
-@st.cache_data(ttl=43200, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_stock_price(stock_id, start_date, end_date):
     """逐月取得 TWSE 個股每日收盤價與高低價，計算均線及 KD 指標。"""
     fetch_start = pd.Timestamp(start_date) - pd.Timedelta(days=60)
@@ -584,7 +606,16 @@ with col3:
     end_date = st.date_input("結束日期", value=date.today(), max_value=date.today())
 
 start_date = end_date - timedelta(days=period_days)
-submit = st.button("開始查詢", type="primary", use_container_width=True)
+
+# 提供「開始查詢」與「清除快取」按鈕
+btn_col1, btn_col2 = st.columns([3, 1])
+with btn_col1:
+    submit = st.button("開始查詢", type="primary", use_container_width=True)
+with btn_col2:
+    if st.button("🔄 清除快取", use_container_width=True):
+        st.cache_data.clear()
+        st.toast("已清除所有快取！正在重新取得證交所最新資料...")
+        st.rerun()
 
 st.caption("目前版本：上市股票 ｜ 資料單位：張／交易單位")
 st.divider()
@@ -606,6 +637,10 @@ if submit:
     latest = df.iloc[-1]
     st.subheader(f"{stock_id} {latest['股票名稱']}")
     st.caption(f"最新資料日期：{latest['日期']:%Y-%m-%d}")
+
+    # 若今天為平日且最新日期不是今天，給出貼心提醒
+    if latest['日期'].date() < date.today() and date.today().weekday() < 5:
+        st.info(f"💡 提醒：若今日為交易日，證交所融資融券通常於 21:00～21:30 公布。若已超過公布時間仍未顯示，請點擊上方「🔄 清除快取」重新取得最新資料。")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("融資餘額", f"{latest['融資餘額']:,.0f} 張")
@@ -647,7 +682,7 @@ if submit:
     with d_col:
         institutional_chart(df, "自營商買賣超", "自營商每日買賣超", height=220)
 
-    # --- 融資與融券每日變化（移至上方）---
+    # --- 融資與融券每日變化 ---
     st.markdown("### 融資與融券每日變化")
     left, right = st.columns(2)
     with left:
@@ -655,7 +690,7 @@ if submit:
     with right:
         change_chart(df, "融券變化", "融券每日變化")
 
-    # --- 融資與融券餘額走勢（移至下方）---
+    # --- 融資與融券餘額走勢 ---
     st.markdown("### 融資與融券餘額走勢")
     st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
     balance_chart(df)

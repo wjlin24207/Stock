@@ -106,9 +106,11 @@ def roc_date_to_datetime(text):
 
 @st.cache_data(ttl=43200, show_spinner=False)
 def fetch_stock_price(stock_id, start_date, end_date):
-    """逐月取得 TWSE 個股每日收盤價，並篩選指定日期範圍。"""
+    """逐月取得 TWSE 個股每日收盤價，計算 5/10/20 日均線，並篩選指定日期範圍。"""
+    # 往前多抓約 60 天，確保有足夠的交易日計算 20 日均線 (月線)
+    fetch_start = pd.Timestamp(start_date) - pd.Timedelta(days=60)
     month_starts = pd.date_range(
-        start=pd.Timestamp(start_date).replace(day=1),
+        start=fetch_start.replace(day=1),
         end=pd.Timestamp(end_date).replace(day=1),
         freq="MS",
     )
@@ -154,9 +156,15 @@ def fetch_stock_price(stock_id, start_date, end_date):
                 records.append({"日期": trade_date, "收盤價": float(close_price)})
 
     if not records:
-        return pd.DataFrame(columns=["日期", "收盤價"])
+        return pd.DataFrame(columns=["日期", "收盤價", "MA5", "MA10", "MA20"])
 
-    price_df = pd.DataFrame(records).drop_duplicates("日期").sort_values("日期")
+    price_df = pd.DataFrame(records).drop_duplicates("日期").sort_values("日期").reset_index(drop=True)
+
+    # 計算移動平均線
+    price_df["MA5"] = price_df["收盤價"].rolling(window=5).mean()
+    price_df["MA10"] = price_df["收盤價"].rolling(window=10).mean()
+    price_df["MA20"] = price_df["收盤價"].rolling(window=20).mean()
+
     mask = (
         (price_df["日期"] >= pd.Timestamp(start_date))
         & (price_df["日期"] <= pd.Timestamp(end_date))
@@ -165,8 +173,8 @@ def fetch_stock_price(stock_id, start_date, end_date):
 
 
 def price_chart(detail_df):
-    """顯示股價走勢，並在各資料點下方標示參考指數。"""
-    chart_df = detail_df[["日期", "收盤價", "參考指數"]].copy()
+    """顯示股價走勢與均線，並在各資料點下方標示參考指數。"""
+    chart_df = detail_df.copy()
     chart_df = chart_df.dropna(subset=["收盤價"])
     chart_df["圖表標籤"] = chart_df["參考指數"].replace(
         {"資料不足": "", "持平，未分類": "持平"}
@@ -178,28 +186,47 @@ def price_chart(detail_df):
             title="日期",
             timeUnit="yearmonthdate",
             axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True),
-        ),
+        )
+    )
+
+    # 主收盤價線
+    line_close = base.mark_line(
+        point=alt.OverlayMarkDef(filled=True, size=55),
+        color="#F2B134",
+        strokeWidth=2.5,
+    ).encode(
         y=alt.Y(
             "收盤價:Q",
             title="收盤價（元）",
             scale=alt.Scale(zero=False, nice=True, padding=35),
             axis=alt.Axis(format=",.2f"),
         ),
-    )
-
-    line = base.mark_line(
-        point=alt.OverlayMarkDef(filled=True, size=55),
-        color="#F2B134",
-        strokeWidth=2.5,
-    ).encode(
         tooltip=[
             alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
             alt.Tooltip("收盤價:Q", title="收盤價", format=",.2f"),
+            alt.Tooltip("MA5:Q", title="5日線 (MA5)", format=",.2f"),
+            alt.Tooltip("MA10:Q", title="10日線 (MA10)", format=",.2f"),
+            alt.Tooltip("MA20:Q", title="20日線 (MA20)", format=",.2f"),
             alt.Tooltip("參考指數:N", title="參考指數"),
-        ]
+        ],
     )
 
-    # 回復預設樣式：水平文字，置於資料點下方
+    # 5日均線 (綠色)
+    line_ma5 = base.mark_line(color="#2CA02C", strokeWidth=1.5).encode(
+        y=alt.Y("MA5:Q")
+    )
+
+    # 10日均線 (藍色)
+    line_ma10 = base.mark_line(color="#1F77B4", strokeWidth=1.5).encode(
+        y=alt.Y("MA10:Q")
+    )
+
+    # 20日均線 (紫色)
+    line_ma20 = base.mark_line(color="#9467BD", strokeWidth=1.5).encode(
+        y=alt.Y("MA20:Q")
+    )
+
+    # 水平文字標籤（點的下方）
     labels = base.mark_text(
         dy=18,
         baseline="top",
@@ -207,10 +234,11 @@ def price_chart(detail_df):
         fontSize=12,
         fontWeight="bold",
     ).encode(
-        text=alt.Text("圖表標籤:N")
+        y=alt.Y("收盤價:Q"),
+        text=alt.Text("圖表標籤:N"),
     )
 
-    chart = alt.layer(line, labels).properties(height=380)
+    chart = alt.layer(line_close, line_ma5, line_ma10, line_ma20, labels).properties(height=380)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -255,8 +283,9 @@ def balance_chart(df):
 
 
 def add_reference_signal(margin_df, price_df):
-    """合併收盤價，並依前一交易日的價、資、券變化產生參考指數。"""
-    result = margin_df.merge(price_df[["日期", "收盤價"]], on="日期", how="left")
+    """合併收盤價與均線，並依前一交易日的價、資、券變化產生參考指數。"""
+    merge_cols = [c for c in ["日期", "收盤價", "MA5", "MA10", "MA20"] if c in price_df.columns]
+    result = margin_df.merge(price_df[merge_cols], on="日期", how="left")
     result = result.sort_values("日期").reset_index(drop=True)
     result["前日收盤價"] = result["收盤價"].shift(1)
     result["股價變化"] = result["收盤價"] - result["前日收盤價"]
@@ -361,6 +390,7 @@ if submit:
     st.divider()
 
     st.markdown("### 股價走勢")
+    st.caption("🟡 黃線：收盤價 ｜ 🟢 綠線：5日線 (MA5) ｜ 🔵 藍線：10日線 (MA10) ｜ 🟣 紫線：20日線 (MA20)")
     if price_df.empty:
         st.warning("此查詢期間找不到股價資料。")
     else:
@@ -382,7 +412,7 @@ if submit:
         display["日期"] = display["日期"].dt.strftime("%Y-%m-%d")
         display = display[
             [
-                "日期", "股票代號", "股票名稱", "收盤價", "股價變化",
+                "日期", "股票代號", "股票名稱", "收盤價", "MA5", "MA10", "MA20", "股價變化",
                 "融資餘額", "融資變化", "融券餘額", "融券變化", "參考指數"
             ]
         ].sort_values("日期", ascending=False)
@@ -392,6 +422,9 @@ if submit:
             hide_index=True,
             column_config={
                 "收盤價": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                "MA5": st.column_config.NumberColumn("5日線", format="%.2f"),
+                "MA10": st.column_config.NumberColumn("10日線", format="%.2f"),
+                "MA20": st.column_config.NumberColumn("20日線", format="%.2f"),
                 "股價變化": st.column_config.NumberColumn("股價變化", format="%+.2f"),
                 "融資餘額": st.column_config.NumberColumn("融資餘額", format="%d"),
                 "融資變化": st.column_config.NumberColumn("融資變化", format="%+d"),

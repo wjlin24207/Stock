@@ -647,16 +647,18 @@ if submit:
     with d_col:
         institutional_chart(df, "自營商買賣超", "自營商每日買賣超", height=220)
 
-    st.markdown("### 融資與融券餘額走勢")
-    st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
-    balance_chart(df)
-
+    # --- 融資與融券每日變化（移至上方）---
     st.markdown("### 融資與融券每日變化")
     left, right = st.columns(2)
     with left:
         change_chart(df, "融資變化", "融資每日變化")
     with right:
         change_chart(df, "融券變化", "融券每日變化")
+
+    # --- 融資與融券餘額走勢（移至下方）---
+    st.markdown("### 融資與融券餘額走勢")
+    st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")
+    balance_chart(df)
 
     with st.expander("查看每日明細與下載 CSV"):
         display = detail_df.copy()

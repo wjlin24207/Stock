@@ -267,7 +267,7 @@ def price_chart(detail_df):
 
 
 def kd_chart(detail_df):
-    """顯示 KD 指標走勢 (9, 3, 3)，並標示 20/80 超買超賣參考線。"""
+    """顯示 KD 指標走勢 (9, 3, 3)，顯示曲線資料點、K 值標籤，並標示 20/80 超買超賣參考線。"""
     chart_df = detail_df.dropna(subset=["K", "D"]).copy()
     if chart_df.empty:
         return
@@ -281,12 +281,16 @@ def kd_chart(detail_df):
         )
     )
 
-    # K 線 (紅橘色)
-    line_k = base.mark_line(color="#E15759", strokeWidth=2).encode(
+    # K 線（紅線，附圓形實心點）
+    line_k = base.mark_line(
+        point=alt.OverlayMarkDef(filled=True, size=40),
+        color="#E15759",
+        strokeWidth=2,
+    ).encode(
         y=alt.Y(
             "K:Q",
             title="KD 指標",
-            scale=alt.Scale(domain=[0, 100]),
+            scale=alt.Scale(domain=[-5, 105]),
             axis=alt.Axis(format=",.0f"),
         ),
         tooltip=[
@@ -296,14 +300,30 @@ def kd_chart(detail_df):
         ],
     )
 
-    # D 線 (藍色)
-    line_d = base.mark_line(color="#4E79A7", strokeWidth=2).encode(
+    # D 線（藍線，附圓形實心點）
+    line_d = base.mark_line(
+        point=alt.OverlayMarkDef(filled=True, size=40),
+        color="#4E79A7",
+        strokeWidth=2,
+    ).encode(
         y=alt.Y("D:Q"),
         tooltip=[
             alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
             alt.Tooltip("K:Q", title="K 值", format=",.2f"),
             alt.Tooltip("D:Q", title="D 值", format=",.2f"),
         ],
+    )
+
+    # 顯示 K 的數值標籤（位於 K 點上方）
+    k_labels = base.mark_text(
+        dy=-8,
+        baseline="bottom",
+        color="#E15759",
+        size=10,
+        fontWeight="bold",
+    ).encode(
+        y=alt.Y("K:Q"),
+        text=alt.Text("K:Q", format=",.1f"),
     )
 
     # 80 / 20 參考線
@@ -315,7 +335,7 @@ def kd_chart(detail_df):
         strokeDash=[4, 4], color="#888888", strokeWidth=1
     ).encode(y="y:Q")
 
-    chart = alt.layer(rule_80, rule_20, line_k, line_d).properties(height=180)
+    chart = alt.layer(rule_80, rule_20, line_k, line_d, k_labels).properties(height=200)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -473,9 +493,8 @@ if submit:
     else:
         price_chart(detail_df)
 
-    # 獨立放在股價走勢正下方的 KD 指標
     st.markdown("### KD 指標 (9, 3, 3)")
-    st.caption("🔴 紅線：K 值 ｜ 🔵 藍線：D 值 ｜ 灰虛線：80 超買線、20 超賣線")
+    st.caption("🔴 紅線：K 值（附數值） ｜ 🔵 藍線：D 值 ｜ 灰虛線：80 超買線、20 超賣線")
     if not price_df.empty:
         kd_chart(detail_df)
 

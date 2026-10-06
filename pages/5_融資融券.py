@@ -299,19 +299,26 @@ def change_chart(df, field, title):
 st.title("📊 台股融資融券查詢")
 st.caption("輸入上市股票代號，查看融資融券餘額及每日變化。")
 
-with st.sidebar:
-    st.header("查詢條件")
+# --- 將原本 st.sidebar 的部分移至此處，並改用 columns 排版 ---
+st.header("查詢條件")
+col1, col2, col3 = st.columns(3)
+
+with col1:
     stock_id = st.text_input("股票代號", value="2330", max_chars=6).strip()
+with col2:
     period_days = st.selectbox(
         "查詢期間", [10, 20, 30, 60, 90], index=2,
         format_func=lambda value: f"最近 {value} 個日曆日",
     )
+with col3:
     end_date = st.date_input("結束日期", value=date.today(), max_value=date.today())
-    start_date = end_date - timedelta(days=period_days)
-    submit = st.button("開始查詢", type="primary", use_container_width=True)
-    st.divider()
-    st.caption("目前版本：上市股票")
-    st.caption("資料單位：張／交易單位")
+
+start_date = end_date - timedelta(days=period_days)
+submit = st.button("開始查詢", type="primary", use_container_width=True)
+
+st.caption("目前版本：上市股票 ｜ 資料單位：張／交易單位")
+st.divider()
+# -------------------------------------------------------------
 
 if submit:
     if not stock_id or not stock_id.isdigit():
@@ -386,4 +393,5 @@ if submit:
 
     st.info("今日餘額後續可能因調帳而修正，本工具僅供資料整理參考。")
 else:
-    st.info("請在左側輸入股票代號並按下「開始查詢」。")
+    # 這裡的提示也順便幫你把「左側」改成「上方」了
+    st.info("請在上方輸入股票代號並按下「開始查詢」。")

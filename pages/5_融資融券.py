@@ -165,26 +165,47 @@ def fetch_stock_price(stock_id, start_date, end_date):
     return price_df.loc[mask].reset_index(drop=True)
 
 
-def price_chart(price_df):
-    chart = (
-        alt.Chart(price_df)
-        .mark_line(point=True, color="#F2B134", strokeWidth=2.5)
-        .encode(
-            x=alt.X("日期:T", title="日期", axis=alt.Axis(format="%m/%d")),
-            y=alt.Y(
-                "收盤價:Q",
-                title="收盤價（元）",
-                scale=alt.Scale(zero=False, nice=True),
-                axis=alt.Axis(format=","),
-            ),
-            tooltip=[
-                alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
-                alt.Tooltip("收盤價:Q", title="收盤價", format=",.2f"),
-            ],
-        )
-        .properties(height=320)
-        .interactive()
+def price_chart(detail_df):
+    """顯示股價走勢，並在各資料點下方標示參考指數。"""
+    chart_df = detail_df[["日期", "收盤價", "參考指數"]].copy()
+    chart_df = chart_df.dropna(subset=["收盤價"])
+    chart_df["圖表標籤"] = chart_df["參考指數"].replace(
+        {"資料不足": "", "持平，未分類": "持平"}
     )
+
+    base = alt.Chart(chart_df).encode(
+        x=alt.X("日期:T", title="日期", axis=alt.Axis(format="%m/%d")),
+        y=alt.Y(
+            "收盤價:Q",
+            title="收盤價（元）",
+            scale=alt.Scale(zero=False, nice=True, padding=35),
+            axis=alt.Axis(format=","),
+        ),
+    )
+
+    line = base.mark_line(
+        point=alt.OverlayMarkDef(filled=True, size=55),
+        color="#F2B134",
+        strokeWidth=2.5,
+    ).encode(
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期", format="%Y-%m-%d"),
+            alt.Tooltip("收盤價:Q", title="收盤價", format=",.2f"),
+            alt.Tooltip("參考指數:N", title="參考指數"),
+        ]
+    )
+
+    labels = base.mark_text(
+        dy=18,
+        baseline="top",
+        color="#FF6B6B",
+        fontSize=12,
+        fontWeight="bold",
+    ).encode(
+        text=alt.Text("圖表標籤:N")
+    )
+
+    chart = alt.layer(line, labels).properties(height=380)
     st.altair_chart(chart, use_container_width=True)
 
 def balance_chart(df):
@@ -218,7 +239,7 @@ def balance_chart(df):
         ],
     )
 
-    chart = alt.layer(margin, short).resolve_scale(y="independent").properties(height=420).interactive()
+    chart = alt.layer(margin, short).resolve_scale(y="independent").properties(height=420)
     st.altair_chart(chart, use_container_width=True)
 
 
@@ -322,7 +343,7 @@ if submit:
     if price_df.empty:
         st.warning("此查詢期間找不到股價資料。")
     else:
-        price_chart(price_df)
+        price_chart(detail_df)
 
     st.markdown("### 融資與融券餘額走勢")
     st.caption("紅線：左側 Y 軸融資餘額；藍線：右側 Y 軸融券餘額。")

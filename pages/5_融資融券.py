@@ -172,7 +172,7 @@ def price_chart(detail_df):
         {"資料不足": "", "持平，未分類": "持平"}
     )
     
-    # 這裡將重複的連續標籤設為空白，避免畫面上字詞擠在一起
+    # 將重複的連續標籤設為空白，避免畫面上字詞擠在一起
     chart_df["前日標籤"] = chart_df["圖表標籤"].shift(1)
     chart_df.loc[chart_df["圖表標籤"] == chart_df["前日標籤"], "圖表標籤"] = ""
 
@@ -187,7 +187,6 @@ def price_chart(detail_df):
             "收盤價:Q",
             title="收盤價（元）",
             scale=alt.Scale(zero=False, nice=True, padding=35),
-            # 修改 format 為 ,.2f 強制顯示實際數字與兩位小數，避免科學記號
             axis=alt.Axis(format=",.2f"),
         ),
     )
@@ -204,18 +203,17 @@ def price_chart(detail_df):
         ]
     )
 
-    # 加入 angle=-45 傾斜標籤
     labels = base.mark_text(
         dx=5,
         dy=15,
-        angle=-45,
         align="left",
         baseline="middle",
         color="#FF6B6B",
-        fontSize=12,
+        size=12,
         fontWeight="bold",
     ).encode(
-        text=alt.Text("圖表標籤:N")
+        text=alt.Text("圖表標籤:N"),
+        angle=alt.value(315) # 315度即為 -45度，放在 encode 內避免 schema error
     )
 
     chart = alt.layer(line, labels).properties(height=380)
@@ -237,7 +235,6 @@ def balance_chart(df):
             "融資餘額:Q",
             title="融資餘額（張）",
             scale=alt.Scale(zero=False, nice=True),
-            # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
             axis=alt.Axis(titleColor="#E15759", labelColor="#E15759", format=",.0f"),
         ),
         tooltip=[
@@ -251,7 +248,6 @@ def balance_chart(df):
             "融券餘額:Q",
             title="融券餘額（張）",
             scale=alt.Scale(zero=False, nice=True),
-            # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
             axis=alt.Axis(orient="right", titleColor="#4E79A7", labelColor="#4E79A7", format=",.0f"),
         ),
         tooltip=[
@@ -308,7 +304,6 @@ def change_chart(df, field, title):
             timeUnit="yearmonthdate", 
             axis=alt.Axis(format="%m/%d", labelAngle=-45, labelOverlap=True)
         ),
-        # 修改 format 為 ,.0f 強制顯示整數，避免科學記號
         y=alt.Y(f"{field}:Q", title="每日變化（張）", axis=alt.Axis(format=",.0f")),
         color=alt.Color(
             "方向:N",

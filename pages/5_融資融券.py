@@ -370,10 +370,10 @@ def render_mobile_summary_tables(latest):
       .summary-total td {{font-weight:750; border-top:2px solid rgba(128,128,128,.5);}}
       @media (max-width:600px) {{
         .summary-grid {{gap:6px;}}
-        .summary-title {{font-size:14px;padding:9px 7px 5px;}}
-        .summary-unit {{font-size:10px;padding:0 7px 6px;}}
-        .summary-table th,.summary-table td {{font-size:16px;padding:7px 5px;}}
-        .summary-table th {{font-size:16px;}}
+        .summary-title {{font-size:16px;padding:9px 7px 5px;}}
+        .summary-unit {{font-size:12px;padding:0 7px 6px;}}
+        .summary-table th,.summary-table td {{font-size:14px;padding:7px 5px;}}
+        .summary-table th {{font-size:14px;}}
       }}
     </style>
     <div class="summary-grid">

@@ -795,7 +795,7 @@ async def fetch_one_etf_full_holdings(
         }
     )
 
-    await page.goto(url, wait_until="networkidle", timeout=60000)
+    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     await page.wait_for_timeout(PAGE_WAIT_MS)
 
     page_tables = []

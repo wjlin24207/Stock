@@ -140,9 +140,17 @@ for i, tab in enumerate(tabs):
         selected_name = current_etf["股票名稱"]
         display_code = selected_ticker.split(".")[0]
 
-        st.title(
-            f"📊 {display_code} ({selected_name}) "
-            f"近 30 日走勢與 KD 指標"
+        st.markdown(
+            f"""
+            <div style="
+                font-size: 28px;
+                font-weight: bold;
+                margin-bottom: 20px;
+            ">
+                📊 {display_code} ({selected_name}) 近 30 日走勢與 KD 指標
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         with st.spinner(f"{display_code} 資料讀取中..."):

@@ -66,7 +66,8 @@ def load_stock_data(ticker_symbol):
     df["Volume_Color"] = df.apply(
         lambda row: "#EF5350" if row["Close"] >= row["Open"] else "#26A69A", axis=1
     )
-    return df.copy(), df.tail(30).copy()
+    # 這裡改成回傳最後 90 筆給主要圖表使用
+    return df.copy(), df.tail(90).copy()
 
 
 def create_candlestick_chart(df, indicator):
@@ -139,8 +140,9 @@ for index, tab in enumerate(tabs):
         selected_name = current_etf["股票名稱"]
         display_code = selected_ticker.split(".")[0]
 
+        # 標題改為 90 日
         st.markdown(f'''<div style="font-size:28px;font-weight:700;margin-top:4px;margin-bottom:14px;">
-        📊 {display_code}（{selected_name}）近 30 日 K 線與 KD 指標</div>''', unsafe_allow_html=True)
+        📊 {display_code}（{selected_name}）近 90 日 K 線與 KD 指標</div>''', unsafe_allow_html=True)
 
         with st.spinner(f"正在載入 {display_code} 的股價資料..."):
             full_df, df = load_stock_data(selected_ticker)
@@ -164,7 +166,8 @@ for index, tab in enumerate(tabs):
                         use_container_width=True, key=f"chart_{display_code}")
 
         st.markdown("### 📋 近 30 個交易日收盤價")
-        table_df = df.sort_index(ascending=False).copy()
+        # 加上 .tail(30) 讓表格只抓取最後 30 天的資料
+        table_df = df.tail(30).sort_index(ascending=False).copy()
         table_df.index = table_df.index.strftime("%Y-%m-%d")
         dates = table_df.index.tolist()
         closes = [f"{value:.2f}" for value in table_df["Close"].tolist()]

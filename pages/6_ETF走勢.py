@@ -32,14 +32,11 @@ tab_labels = [
 # --- 2. 新增指標切換選項 ---
 # st.markdown("### ⚙️ 圖表指標設定")
 
-indicator_choice = st.radio( 
-    "請選擇要疊加在走勢圖上的指標：",
-    (
-        "無",
-        "均線 (5日, 月線, 季線)",
-        "布林通道"
-    ),
-    horizontal=True
+indicator_choice = st.radio(
+    "",
+    ("無", "均線 (5日, 月線, 季線)", "布林通道"),
+    horizontal=True,
+    label_visibility="collapsed"
 )
 
 

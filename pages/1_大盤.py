@@ -570,7 +570,7 @@ def resolve_custom_query(query: str, directory: list[dict]):
     if q in ("大盤", "加權", "加權指數", "台灣加權指數", "台股") or q_upper in ("^TWII", "TAIEX"):
         return "single", {
             "ticker": "^TWII",
-            "display_name": "台灣加權指數 (證交所官方 TAIEX)",
+            "display_name": "台灣加權指數 ",
             "tz": "Asia/Taipei",
             "use_twse": True,
         }

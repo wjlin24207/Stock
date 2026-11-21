@@ -102,14 +102,14 @@ st.markdown(
 
 # 預設標的清單（台灣加權指數 + 指定 ETF 清單）
 INDEX_OPTIONS = {
-    "台灣加權指數 (證交所官方 TAIEX)": {"ticker": "^TWII", "tz": "Asia/Taipei", "use_twse": True},
-    "0050 (元大台灣50)": {"ticker": "0050.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "009816": {"ticker": "009816.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "0056 (元大高股息)": {"ticker": "0056.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00878 (國泰永續高股息)": {"ticker": "00878.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00919 (群益台灣精選高息)": {"ticker": "00919.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00981A": {"ticker": "00981A.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00400A": {"ticker": "00400A.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "台灣加權指數": {"ticker": "^TWII", "tz": "Asia/Taipei", "use_twse": True},
+    "0050 元大台灣50": {"ticker": "0050.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "009816 凱基台灣50": {"ticker": "009816.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "0056 元大高股息": {"ticker": "0056.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00878 國泰永續高股息": {"ticker": "00878.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00919 群益台灣精選高息": {"ticker": "00919.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00981A 統一台股增長": {"ticker": "00981A.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00400A 國泰動能高息": {"ticker": "00400A.TW", "tz": "Asia/Taipei", "use_twse": False},
 }
 
 # 離線/API 異常時的基本備援清單

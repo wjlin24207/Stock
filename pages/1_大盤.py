@@ -1,15 +1,13 @@
 """
-台股當日大盤走勢 & 近90日K線技術分析 — 混搭版近5日融資維持率表格 (pages/)
-(Streamlit + TWSE/TPEx OpenAPI + WantGoo + yfinance + Plotly)
+台股當日大盤走勢 & 近90日K線技術分析 — 純證交所官方即時版 (pages/)
+(Streamlit + TWSE/TPEx OpenAPI + yfinance + Plotly)
 放置方式:
-    將此檔案放入專案的 pages/ 資料夾（例如 pages/1_當日大盤走勢.py）
+    將此檔案放入專案的 pages/ 資料夾（例如 pages/4_當日大盤走勢.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v17.py
+    streamlit run taiex_intraday_app-v19.py
 """
 
-import json
-from pathlib import Path
 import re
 import time
 from datetime import datetime, timedelta
@@ -21,12 +19,6 @@ from plotly.subplots import make_subplots
 import requests
 import streamlit as st
 import yfinance as yf
-
-# 若環境有安裝 curl_cffi（新版 yfinance 內建），優先用 Chrome 指紋請求玩股網以降低 Cloudflare 阻擋機率
-try:
-    from curl_cffi import requests as cffi_requests
-except Exception:
-    cffi_requests = None
 
 # ==========================================
 # 頁面基本設定（獨立 page 模式）
@@ -45,12 +37,16 @@ COLOR_WARN = "#FFB300"    # 琥珀黃（維持率警戒）
 
 TZ_TAIPEI = ZoneInfo("Asia/Taipei")
 
-# 玩股網融資維持率本地快取檔（避免頻繁請求觸發 Cloudflare）
-WANTGOO_CACHE_FILE = Path(__file__).resolve().parent / "wantgoo_margin_ratio_cache.json"
-
 st.markdown(
     """
     <style>
+    .section-title {
+        font-size: 1.08rem;
+        font-weight: 700;
+        color: #FAFAFA;
+        margin: 6px 0 8px 0;
+        line-height: 1.35;
+    }
     .metric-card {
         background-color: #1E222D;
         border-radius: 10px;
@@ -102,14 +98,14 @@ st.markdown(
 
 # 預設標的清單（台灣加權指數 + 指定 ETF 清單）
 INDEX_OPTIONS = {
-    "台灣加權指數": {"ticker": "^TWII", "tz": "Asia/Taipei", "use_twse": True},
-    "0050 元大台灣50": {"ticker": "0050.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "009816 凱基台灣50": {"ticker": "009816.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "0056 元大高股息": {"ticker": "0056.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00878 國泰永續高股息": {"ticker": "00878.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00919 群益台灣精選高息": {"ticker": "00919.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00981A 統一台股增長": {"ticker": "00981A.TW", "tz": "Asia/Taipei", "use_twse": False},
-    "00400A 國泰動能高息": {"ticker": "00400A.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "台灣加權指數 (證交所官方 TAIEX)": {"ticker": "^TWII", "tz": "Asia/Taipei", "use_twse": True},
+    "0050 (元大台灣50)": {"ticker": "0050.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "009816": {"ticker": "009816.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "0056 (元大高股息)": {"ticker": "0056.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00878 (國泰永續高股息)": {"ticker": "00878.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00919 (群益台灣精選高息)": {"ticker": "00919.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00981A": {"ticker": "00981A.TW", "tz": "Asia/Taipei", "use_twse": False},
+    "00400A": {"ticker": "00400A.TW", "tz": "Asia/Taipei", "use_twse": False},
 }
 
 # 離線/API 異常時的基本備援清單
@@ -153,258 +149,9 @@ def _to_float(val):
         return None
 
 
-def _normalize_date_str(raw) -> str | None:
-    """將各種日期格式（YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD, Unix 毫秒/秒）轉為 YYYY-MM-DD"""
-    if raw is None:
-        return None
-    if isinstance(raw, (int, float)):
-        ts = float(raw)
-        if ts > 1e12:  # 毫秒
-            ts /= 1000.0
-        if ts > 1e8:
-            try:
-                return datetime.fromtimestamp(ts, tz=TZ_TAIPEI).strftime("%Y-%m-%d")
-            except Exception:
-                return None
-    s = str(raw).strip()
-    if not s:
-        return None
-    m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
-    if m:
-        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    m2 = re.fullmatch(r"(\d{4})(\d{2})(\d{2})", s)
-    if m2:
-        return f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)}"
-    return None
-
-
 # ==========================================
-# 玩股網 (WantGoo) 大盤融資維持率抓取（含本地快取）
+# 證交所 (TWSE) 大盤融資維持率（含 ETF / 全上市）官方實數計算
 # ==========================================
-def _make_wantgoo_session():
-    """建立可複用的連線 Session（優先使用 curl_cffi 模擬 Chrome 瀏覽器指紋）"""
-    if cffi_requests is not None:
-        try:
-            return cffi_requests.Session(impersonate="chrome124"), True
-        except Exception:
-            pass
-    return requests.Session(), False
-
-
-def _http_get_wantgoo(session, url: str, referer: str = "https://www.wantgoo.com/", timeout: int = 10):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": referer,
-        "X-Requested-With": "XMLHttpRequest",
-    }
-    return session.get(url, headers=headers, timeout=timeout)
-
-
-def _extract_ratio_value(val) -> float | None:
-    """相容百分比數值 (119.53) 與小數比值 (1.1953)"""
-    v = _to_float(val)
-    if v is None:
-        return None
-    if 50.0 <= v <= 400.0:
-        return round(v, 2)
-    if 0.50 <= v <= 4.00:
-        return round(v * 100.0, 2)
-    return None
-
-
-def _parse_wantgoo_ratio_payload(payload) -> tuple[dict, list[str]]:
-    """
-    解析玩股網 lending-balance / historical-lending-balance JSON 回傳，
-    回傳 ({"YYYY-MM-DD": float_ratio}, sample_keys)。
-    """
-    result = {}
-    sample_keys = []
-    rows = None
-    if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
-        for key in ("data", "items", "result", "series", "records"):
-            if isinstance(payload.get(key), list):
-                rows = payload[key]
-                break
-        if rows is None:
-            rows = [payload]
-
-    if not rows:
-        return result, sample_keys
-
-    date_keys = ("date", "time", "tradeDate", "d", "t", "x")
-    exact_ratio_keys = (
-        "maintenanceRate",
-        "maintenanceRatio",
-        "marginMaintenanceRatio",
-        "marginMaintenanceRate",
-        "lendingMaintenanceRate",
-        "lendingMaintenanceRatio",
-        "financingMaintenanceRate",
-        "financingMaintenanceRatio",
-        "maintainRate",
-        "maintainRatio",
-        "ratio",
-        "rate",
-    )
-
-    for item in rows:
-        d_str = None
-        r_val = None
-        if isinstance(item, dict):
-            if not sample_keys:
-                sample_keys = list(item.keys())
-
-            # 1. 解析日期
-            for dk in date_keys:
-                if dk in item and item[dk] is not None:
-                    d_str = _normalize_date_str(item[dk])
-                    if d_str:
-                        break
-            if not d_str:
-                for k, v in item.items():
-                    if "date" in k.lower() or "time" in k.lower():
-                        d_str = _normalize_date_str(v)
-                        if d_str:
-                            break
-
-            # 2. 解析維持率（優先比對明確欄位名，再模糊比對含 maint / ratio / rate / percent 的欄位）
-            for rk in exact_ratio_keys:
-                if rk in item and item[rk] is not None:
-                    r_val = _extract_ratio_value(item[rk])
-                    if r_val is not None:
-                        break
-            if r_val is None:
-                for k, v in item.items():
-                    kl = k.lower()
-                    if any(tok in kl for tok in ("maint", "ratio", "rate", "percent")):
-                        r_val = _extract_ratio_value(v)
-                        if r_val is not None:
-                            break
-
-            # 3. 若無直接維持率欄位，但同時存在市值與融資餘額欄位，則自動相除推算
-            if r_val is None:
-                mv_val = None
-                bal_val = None
-                for k, v in item.items():
-                    kl = k.lower()
-                    if "marketvalue" in kl or "marketprice" in kl:
-                        mv_val = _to_float(v)
-                    elif kl == "lendingbalance":
-                        bal_val = _to_float(v)
-                if mv_val and bal_val and bal_val > 0:
-                    r_val = _extract_ratio_value((mv_val / bal_val) * 100.0)
-
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            d_str = _normalize_date_str(item[0])
-            r_val = _extract_ratio_value(item[1])
-
-        if d_str and r_val is not None:
-            result[d_str] = r_val
-
-    return result, sample_keys
-
-
-def _load_wantgoo_cache() -> dict:
-    if not WANTGOO_CACHE_FILE.exists():
-        return {"updated_at": None, "source": "", "excl_etf": {}}
-    try:
-        with open(WANTGOO_CACHE_FILE, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        if isinstance(obj, dict) and isinstance(obj.get("excl_etf"), dict):
-            return obj
-    except Exception:
-        pass
-    return {"updated_at": None, "source": "", "excl_etf": {}}
-
-
-def _save_wantgoo_cache(excl_map: dict, source: str):
-    try:
-        payload = {
-            "updated_at": datetime.now(TZ_TAIPEI).strftime("%Y-%m-%d %H:%M:%S"),
-            "source": source,
-            "excl_etf": {k: excl_map[k] for k in sorted(excl_map.keys())[-60:]},
-        }
-        tmp = WANTGOO_CACHE_FILE.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
-        tmp.replace(WANTGOO_CACHE_FILE)
-    except Exception:
-        pass
-
-
-def _fetch_wantgoo_series(session, endpoints: list[tuple[str, str]]) -> tuple[dict, str]:
-    last_err = ""
-    for url, ref in endpoints:
-        try:
-            resp = _http_get_wantgoo(session, url, referer=ref, timeout=8)
-            if resp.status_code == 200:
-                parsed, sample_keys = _parse_wantgoo_ratio_payload(resp.json())
-                if parsed:
-                    return parsed, ""
-                last_err = f"HTTP 200 但未匹配維持率欄位（欄位：{sample_keys[:12]}）"
-            else:
-                last_err = f"HTTP {resp.status_code}"
-        except Exception as e:
-            last_err = str(e)
-            continue
-    return {}, last_err
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_wantgoo_excl_etf_ratio(force_refresh: bool = False) -> tuple[dict, str, str]:
-    """
-    從玩股網 (WantGoo) 抓取上市大盤「不含 ETF」融資維持率 (-ETFA)：
-      - https://www.wantgoo.com/stock/-ETFA/margin-trading/lending-balance
-      - 備援: https://www.wantgoo.com/stock/-ETFA/margin-trading/historical-lending-balance
-    回傳: (excl_etf_map, source_label, error_msg)
-    """
-    cache = _load_wantgoo_cache()
-    today_str = datetime.now(TZ_TAIPEI).strftime("%Y-%m-%d")
-    upd = str(cache.get("updated_at") or "")
-    cached_excl = cache.get("excl_etf", {})
-
-    if not force_refresh and upd.startswith(today_str) and cached_excl:
-        return (
-            cached_excl,
-            f"{cache.get('source', '玩股網 (WantGoo)')}（本地快取）",
-            "",
-        )
-
-    excl_endpoints = [
-        (
-            "https://www.wantgoo.com/stock/-ETFA/margin-trading/lending-balance",
-            "https://www.wantgoo.com/stock/margin-trading/exclude-etf/taiex",
-        ),
-        (
-            "https://www.wantgoo.com/stock/-ETFA/margin-trading/historical-lending-balance",
-            "https://www.wantgoo.com/stock/margin-trading/exclude-etf/taiex",
-        ),
-    ]
-
-    session, _ = _make_wantgoo_session()
-    excl_map, err_excl = _fetch_wantgoo_series(session, excl_endpoints)
-
-    if excl_map:
-        _save_wantgoo_cache(excl_map, "玩股網 (WantGoo)")
-        return excl_map, "玩股網 (WantGoo)", ""
-
-    if cached_excl:
-        return (
-            cached_excl,
-            f"{cache.get('source', '玩股網 (WantGoo)')}（舊快取）",
-            f"玩股網即時更新失敗（{err_excl}），暫時顯示先前快取。",
-        )
-
-    return {}, "玩股網 (WantGoo)", f"無法從玩股網取得不含ETF融資維持率（{err_excl}）。"
-
-
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_twse_close_prices_day(date_str: str) -> dict:
     """
@@ -570,7 +317,7 @@ def resolve_custom_query(query: str, directory: list[dict]):
     if q in ("大盤", "加權", "加權指數", "台灣加權指數", "台股") or q_upper in ("^TWII", "TAIEX"):
         return "single", {
             "ticker": "^TWII",
-            "display_name": "台灣加權指數 ",
+            "display_name": "台灣加權指數 (證交所官方 TAIEX)",
             "tz": "Asia/Taipei",
             "use_twse": True,
         }
@@ -1011,10 +758,10 @@ def _fetch_tpex_margin_day(date_fmt: str) -> dict:
     return {}
 
 
-def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5, force_refresh_wantgoo: bool = False):
+def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
     """
     取得近 5 個交易日的「三大法人買賣超」與「融資券變化」：
-      - 台灣加權指數 (^TWII)：三大法人與融資券來自證交所官方 API，大盤融資維持率直接抓取玩股網 (WantGoo)。
+      - 台灣加權指數 (^TWII)：三大法人、融資券與含 ETF 大盤融資維持率皆來自證交所官方即時 API。
       - 上市/上櫃個股與 ETF (.TW / .TWO)：三大法人與融資券單位皆為「張」。
     """
     is_taiex = use_twse or ticker == "^TWII"
@@ -1029,8 +776,6 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5, force_refr
     margin_records = []
 
     if is_taiex:
-        wg_excl, wantgoo_src, wantgoo_err = fetch_wantgoo_excl_etf_ratio(force_refresh=force_refresh_wantgoo)
-
         # 多抓 1 個交易日 (days + 1) 供計算近 5 日維持率「較前日增減」與補齊無成交個股收盤價
         raw_margin_days = []
         for d in weekdays:
@@ -1058,10 +803,9 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5, force_refr
                         }
                     )
 
-        # 由舊到新計算每日「含ETF維持率（證交所官方實數）」並合併玩股網「不含ETF維持率」
+        # 由舊到新計算每日「含ETF維持率（證交所官方實數）」
         raw_margin_days.sort(key=lambda x: x["d_full"])
         last_valid_prices = {}
-        wg_excl_dates = sorted(wg_excl.keys())
         maint_records = []
 
         for item in raw_margin_days:
@@ -1073,26 +817,17 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5, force_refr
                 close_prices=close_map,
                 last_valid_prices=last_valid_prices,
             )
-            r_excl = wg_excl.get(d_full)
-            r_excl_diff = None
-            if r_excl is not None and d_full in wg_excl_dates:
-                pos = wg_excl_dates.index(d_full)
-                if pos > 0:
-                    r_excl_diff = round(r_excl - wg_excl[wg_excl_dates[pos - 1]], 2)
-
             maint_records.append(
                 {
                     "完整日期": d_full,
                     "含ETF維持率": r_incl,
-                    "不含ETF維持率": r_excl,
-                    "不含ETF較前日": r_excl_diff,
                 }
             )
 
-        # 計算「含ETF較前日」增減，並擷取最近 5 個交易日
+        # 計算「較前日」增減，並擷取最近 5 個交易日
         df_maint_all = pd.DataFrame(maint_records)
         if not df_maint_all.empty:
-            df_maint_all["含ETF較前日"] = df_maint_all["含ETF維持率"].diff().round(2)
+            df_maint_all["較前日"] = df_maint_all["含ETF維持率"].diff().round(2)
             df_maint = df_maint_all.tail(days).reset_index(drop=True)
         else:
             df_maint = pd.DataFrame()
@@ -1111,8 +846,6 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5, force_refr
             "margin_unit": "億元",
             "short_unit": "張",
             "is_market": True,
-            "wantgoo_source": wantgoo_src,
-            "wantgoo_error": wantgoo_err,
             "df_maint": df_maint,
         }
 
@@ -2079,7 +1812,6 @@ with st.container(border=True):
 
     with ctrl4:
         if st.button("🔄 立即手動更新", use_container_width=True):
-            st.session_state["force_refresh_wantgoo"] = True
             st.cache_data.clear()
             st.rerun()
 
@@ -2198,12 +1930,11 @@ with tab_intraday:
         if volume_mode == "turnover_yi" and ("Volume" not in df_intra.columns or df_intra["Volume"].sum() <= 0):
             st.info("ℹ️ 證交所「每 5 秒委託成交統計 (`MI_5MINS`)」為盤後公布資料，盤中即時階段暫不顯示分時成交金額柱狀圖，待盤後結算公布即會自動出現。")
 
-    # ---- 近 5 日三大法人買賣超 & 融資券變化（純表格 + 玩股網大盤融資維持率） ----
+    # ---- 近 5 日三大法人買賣超 & 融資券變化（純證交所即時版） ----
     st.divider()
-    force_refresh_wantgoo = st.session_state.pop("force_refresh_wantgoo", False)
     with st.spinner(f"正在載入 {selected_name} 近 5 日三大法人與融資券資料..."):
         df_inst, df_margin, chip_meta = fetch_recent_5d_chips(
-            ticker, use_twse, days=5, force_refresh_wantgoo=force_refresh_wantgoo
+            ticker, use_twse, days=5
         )
 
     if chip_meta is None:
@@ -2213,7 +1944,10 @@ with tab_intraday:
 
         with chip_col1:
             inst_unit = chip_meta["inst_unit"]
-            st.subheader(f"🏛️ 近 5 日三大法人買賣超 ({inst_unit})")
+            st.markdown(
+                f'<div class="section-title">🏛️ 近 5 日三大法人買賣超 ({inst_unit})</div>',
+                unsafe_allow_html=True,
+            )
             if df_inst.empty:
                 st.warning("暫無近期三大法人買賣超資料（可能尚未盤後公布或標的無資料）。")
             else:
@@ -2234,7 +1968,10 @@ with tab_intraday:
             m_unit = chip_meta["margin_unit"]
             s_unit = chip_meta["short_unit"]
             header_unit = f"融資:{m_unit} / 融券:{s_unit}" if m_unit != s_unit else m_unit
-            st.subheader(f"💳 近 5 日融資券變化 ({header_unit})")
+            st.markdown(
+                f'<div class="section-title">💳 近 5 日融資券變化 ({header_unit})</div>',
+                unsafe_allow_html=True,
+            )
             if df_margin.empty:
                 st.warning("此標的暫無近期融資融券資料（部分新掛牌 ETF 或非信用交易標的無融資券）。")
             else:
@@ -2257,44 +1994,37 @@ with tab_intraday:
                     hide_index=True,
                 )
 
-        # 大盤專用：近 5 日大盤融資維持率表格（混搭版：含 ETF=證交所實數、不含 ETF=玩股網 -ETFA）
+        # 大盤專用：近 5 日大盤融資維持率表格（純證交所官方實數：含 ETF / 全上市）
         if chip_meta["is_market"]:
             df_maint = chip_meta.get("df_maint", pd.DataFrame())
-            wg_src = chip_meta.get("wantgoo_source", "玩股網 (WantGoo)")
-            wg_err = chip_meta.get("wantgoo_error", "")
 
-            st.subheader("⚖️ 近 5 日大盤融資維持率 (%)")
+            st.markdown(
+                '<div class="section-title">⚖️ 近 5 日大盤融資維持率 (%)</div>',
+                unsafe_allow_html=True,
+            )
             if df_maint.empty:
                 st.warning("暫無近期大盤融資維持率資料。")
             else:
-                tbl_maint = df_maint[
-                    ["完整日期", "含ETF維持率", "含ETF較前日", "不含ETF維持率", "不含ETF較前日"]
-                ].iloc[::-1].copy()
+                tbl_maint = df_maint[["完整日期", "含ETF維持率", "較前日"]].iloc[::-1].copy()
                 tbl_maint = tbl_maint.rename(columns={"完整日期": "日期"})
 
                 fmt_maint = {
                     "含ETF維持率": lambda v: f"{v:.2f}%" if pd.notna(v) else "-",
-                    "含ETF較前日": lambda v: f"{v:+.2f}%" if pd.notna(v) else "-",
-                    "不含ETF維持率": lambda v: f"{v:.2f}%" if pd.notna(v) else "-",
-                    "不含ETF較前日": lambda v: f"{v:+.2f}%" if pd.notna(v) else "-",
+                    "較前日": lambda v: f"{v:+.2f}%" if pd.notna(v) else "-",
                 }
                 st.dataframe(
                     tbl_maint.style.map(
-                        _style_maintenance_ratio, subset=["含ETF維持率", "不含ETF維持率"]
+                        _style_maintenance_ratio, subset=["含ETF維持率"]
                     ).map(
-                        _style_signed_val, subset=["含ETF較前日", "不含ETF較前日"]
+                        _style_signed_val, subset=["較前日"]
                     ).format(fmt_maint),
                     use_container_width=True,
                     hide_index=True,
                 )
                 st.caption(
-                    f"資料來源：含 ETF＝證交所官方全上市融資市值 ÷ 總融資金額；"
-                    f"不含 ETF＝{wg_src}（`-ETFA`，每日本地快取）。"
-                    "`<140%` 黃字警戒、`<130%` 紅字追繳區；按上方「🔄 立即手動更新」可重新抓取。"
+                    "資料來源：臺灣證券交易所官方即時計算（全上市含 ETF 融資市值 ÷ 總融資金額）。"
+                    "`<140%` 黃字警戒、`<130%` 紅字追繳區。"
                 )
-
-            if wg_err:
-                st.warning(f"⚠️ {wg_err}")
 
 # ------------------------------------------
 # Tab 2: 近 90 個交易日 K 線 + 日成交量 + KD(9,3,3)

@@ -3,6 +3,7 @@ import re
 import html
 import time
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 import urllib3
 import requests
 import pandas as pd
@@ -11,17 +12,50 @@ import plotly.graph_objects as go
 
 urllib3.disable_warnings()
 
+# 固定自動刷新秒數 (寫死在程式內，不開放介面修改)
+AUTO_REFRESH_SEC = 60
+
 # 設定網頁標題與配置
 st.set_page_config(page_title="期貨與美股", layout="wide")
 
-# 注入響應式 CSS：僅鎖定「走勢圖區塊」在手機版也強制維持 2x2 並排，不影響其他元件
+# 注入響應式 CSS：
+# 1. 標題與刷新按鈕在桌面與手機皆維持同一行左右對齊
+# 2. 走勢圖區塊在手機版強制維持 2x2 並排
 st.markdown(
     """
     <style>
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-header-anchor) div[data-testid="stHorizontalBlock"],
+    .st-key-mobile_header_row div[data-testid="stHorizontalBlock"] {
+        align-items: center !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-header-anchor) div[data-testid="stColumn"]:last-child .stButton,
+    .st-key-mobile_header_row div[data-testid="stColumn"]:last-child .stButton {
+        display: flex;
+        justify-content: flex-end;
+    }
     @media (max-width: 640px) {
         .block-container {
             padding-left: 0.6rem !important;
             padding-right: 0.6rem !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-header-anchor) div[data-testid="stHorizontalBlock"],
+        .st-key-mobile_header_row div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-header-anchor) div[data-testid="stColumn"]:first-child,
+        .st-key-mobile_header_row div[data-testid="stColumn"]:first-child {
+            flex: 1 1 auto !important;
+            width: auto !important;
+            min-width: 0 !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-header-anchor) div[data-testid="stColumn"]:last-child,
+        .st-key-mobile_header_row div[data-testid="stColumn"]:last-child {
+            flex: 0 0 auto !important;
+            width: auto !important;
+            min-width: 0 !important;
         }
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-2col-anchor) div[data-testid="stHorizontalBlock"],
         .st-key-mobile_chart_grid div[data-testid="stHorizontalBlock"] {
@@ -41,14 +75,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 縮小最上方大標題字體
-st.markdown(
-    '<h2 style="font-size: clamp(19px, 5vw, 24px); font-weight: 700; margin: 0 0 12px 0; padding: 0;">📊 期貨與美股看版</h2>',
-    unsafe_allow_html=True
-)
-
-# 監控的商品代號與對應外部連結
-market_tickers = {
+# 上方 2x2 走勢圖商品 (美國期貨、台指期夜盤、美國現貨指數)
+chart_tickers = {
     "小道瓊": {"ticker": "YM=F", "url": "https://finance.yahoo.com.tw/quote/YM=F"},
     "小S&P500": {"ticker": "ES=F", "url": "https://finance.yahoo.com.tw/quote/ES=F"},
     "小那斯達克": {"ticker": "NQ=F", "url": "https://finance.yahoo.com.tw/quote/NQ=F"},
@@ -57,8 +85,24 @@ market_tickers = {
     "S&P500": {"ticker": "^GSPC", "url": "https://finance.yahoo.com.tw/quote/^GSPC"},
     "那斯達克": {"ticker": "^IXIC", "url": "https://finance.yahoo.com.tw/quote/^IXIC"},
     "費城半導體": {"ticker": "^SOX", "url": "https://finance.yahoo.com.tw/quote/^SOX"},
+}
+
+# 下方數據總覽表商品 (不含美國大盤與期貨，保留 ADR 並新增重點科技股)
+table_tickers = {
     "台積電ADR": {"ticker": "TSM", "url": "https://tw.stock.yahoo.com/quote/TSM"},
-    "日月光ADR": {"ticker": "ASX", "url": "https://tw.stock.yahoo.com/quote/ASX"}
+    "日月光ADR": {"ticker": "ASX", "url": "https://tw.stock.yahoo.com/quote/ASX"},
+    "輝達": {"ticker": "NVDA", "url": "https://tw.stock.yahoo.com/quote/NVDA"},
+    "谷歌": {"ticker": "GOOGL", "url": "https://tw.stock.yahoo.com/quote/GOOGL"},
+    "蘋果": {"ticker": "AAPL", "url": "https://tw.stock.yahoo.com/quote/AAPL"},
+    "美光": {"ticker": "MU", "url": "https://tw.stock.yahoo.com/quote/MU"},
+    "海力士": {"ticker": "000660.KS", "url": "https://finance.yahoo.com/quote/000660.KS"},
+    "微軟": {"ticker": "MSFT", "url": "https://tw.stock.yahoo.com/quote/MSFT"},
+    "英特爾": {"ticker": "INTC", "url": "https://tw.stock.yahoo.com/quote/INTC"},
+    "Meta": {"ticker": "META", "url": "https://tw.stock.yahoo.com/quote/META"},
+    "博通": {"ticker": "AVGO", "url": "https://tw.stock.yahoo.com/quote/AVGO"},
+    "超微": {"ticker": "AMD", "url": "https://tw.stock.yahoo.com/quote/AMD"},
+    "亞馬遜": {"ticker": "AMZN", "url": "https://tw.stock.yahoo.com/quote/AMZN"},
+    "特斯拉": {"ticker": "TSLA", "url": "https://tw.stock.yahoo.com/quote/TSLA"},
 }
 
 
@@ -87,6 +131,57 @@ def fetch_yahoo_historical_fallback(ticker, headers):
     except Exception:
         pass
     return 0.0, 0.0, 0.0, 0.0
+
+
+def fetch_single_yahoo_item(name, ticker, include_intraday=True):
+    """ 抓取單一商品的 Yahoo Finance 即時報價 (可選擇是否附帶 5 分 K 走勢) """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    current_price, change, change_pct, prev_close = 0.0, 0.0, 0.0, 0.0
+    times, prices = [], []
+
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=5m&range=1d"
+        response = requests.get(url, headers=headers, timeout=4)
+        if response.status_code == 200:
+            res_json = response.json()
+            result = res_json.get("chart", {}).get("result", [{}])[0]
+            meta = result.get("meta", {})
+            timestamps = result.get("timestamp", [])
+            closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+
+            valid_pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
+            if include_intraday and valid_pairs:
+                times = [datetime.fromtimestamp(t).strftime("%H:%M") for t, _ in valid_pairs]
+                prices = [float(c) for _, c in valid_pairs]
+
+            last_valid_close = float(valid_pairs[-1][1]) if valid_pairs else 0.0
+            first_valid_close = float(valid_pairs[0][1]) if valid_pairs else 0.0
+
+            live_price = meta.get("regularMarketPrice") or last_valid_close
+            live_prev = meta.get("chartPreviousClose") or meta.get("previousClose") or first_valid_close
+
+            if live_price and live_prev:
+                current_price = float(live_price)
+                prev_close = float(live_prev)
+                change = current_price - prev_close
+                change_pct = (change / prev_close) * 100
+    except Exception:
+        pass
+
+    if current_price == 0.0:
+        current_price, change, change_pct, prev_close = fetch_yahoo_historical_fallback(ticker, headers)
+
+    return {
+        "商品名稱": name,
+        "最新價格": current_price,
+        "漲跌點數": change,
+        "漲跌幅 (%)": change_pct,
+        "昨收": prev_close,
+        "times": times,
+        "prices": prices
+    }
 
 
 @st.cache_data(ttl=15)
@@ -197,61 +292,36 @@ def get_txf_night_data():
 
 
 @st.cache_data(ttl=15)
-def fetch_yahoo_market_data(tickers_dict):
-    """ 抓取 Yahoo Finance 即時報價與當日 5 分 K 走勢 """
-    data_list = []
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+def fetch_yahoo_batch(tickers_dict, include_intraday=True):
+    """ 平行抓取多檔 Yahoo Finance 商品資料，大幅加快載入速度 """
+    items_to_fetch = [
+        (name, info["ticker"])
+        for name, info in tickers_dict.items()
+        if name != "台指期夜盤"
+    ]
+    results_map = {}
 
-    for name, info in tickers_dict.items():
-        if name == "台指期夜盤":
-            continue
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {
+            executor.submit(fetch_single_yahoo_item, name, ticker, include_intraday): name
+            for name, ticker in items_to_fetch
+        }
+        for fut in futures:
+            name = futures[fut]
+            try:
+                results_map[name] = fut.result()
+            except Exception:
+                results_map[name] = {
+                    "商品名稱": name,
+                    "最新價格": 0.0,
+                    "漲跌點數": 0.0,
+                    "漲跌幅 (%)": 0.0,
+                    "昨收": 0.0,
+                    "times": [],
+                    "prices": []
+                }
 
-        ticker = info["ticker"]
-        current_price, change, change_pct, prev_close = 0.0, 0.0, 0.0, 0.0
-        times, prices = [], []
-
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=5m&range=1d"
-            response = requests.get(url, headers=headers, timeout=4)
-            if response.status_code == 200:
-                res_json = response.json()
-                result = res_json.get("chart", {}).get("result", [{}])[0]
-                meta = result.get("meta", {})
-                timestamps = result.get("timestamp", [])
-                closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
-
-                valid_pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
-                if valid_pairs:
-                    times = [datetime.fromtimestamp(t).strftime("%H:%M") for t, _ in valid_pairs]
-                    prices = [float(c) for _, c in valid_pairs]
-
-                live_price = meta.get("regularMarketPrice") or (prices[-1] if prices else 0.0)
-                live_prev = meta.get("chartPreviousClose") or meta.get("previousClose") or (prices[0] if prices else 0.0)
-
-                if live_price and live_prev:
-                    current_price = float(live_price)
-                    prev_close = float(live_prev)
-                    change = current_price - prev_close
-                    change_pct = (change / prev_close) * 100
-        except Exception:
-            pass
-
-        if current_price == 0.0:
-            current_price, change, change_pct, prev_close = fetch_yahoo_historical_fallback(ticker, headers)
-
-        data_list.append({
-            "商品名稱": name,
-            "最新價格": current_price,
-            "漲跌點數": change,
-            "漲跌幅 (%)": change_pct,
-            "昨收": prev_close,
-            "times": times,
-            "prices": prices
-        })
-
-    return data_list
+    return [results_map[name] for name, _ in items_to_fetch]
 
 
 def get_color_style(change):
@@ -401,10 +471,10 @@ def render_independent_chart_block(item, tickers_dict):
     )
 
 
-def render_clickable_html_table(market_data, tickers_dict):
+def render_clickable_html_table(table_data, tickers_dict):
     """ 手機友善 HTML 總表：縮小字體與間距，原生 <a> 超連結單指輕點即開啟 """
     rows_html = []
-    for item in market_data:
+    for item in table_data:
         name = item["商品名稱"]
         price = item["最新價格"]
         change = item["漲跌點數"]
@@ -443,90 +513,107 @@ def render_clickable_html_table(market_data, tickers_dict):
     st.markdown(table_html, unsafe_allow_html=True)
 
 
-# --- 控制列 ---
-col_refresh1, col_refresh2, col_refresh3 = st.columns([1, 1, 2])
-with col_refresh1:
-    if st.button("🔄 點擊強制刷新最新跳動"):
-        st.cache_data.clear()
-        st.rerun()
+def render_dashboard():
+    # --- 標題列：左側大標題 + 右側點擊刷新按鈕 (手機維持同一行) ---
+    try:
+        header_container = st.container(key="mobile_header_row")
+    except TypeError:
+        header_container = st.container()
 
-with col_refresh2:
-    auto_refresh = st.toggle("自動刷新", value=False)
+    with header_container:
+        st.markdown('<span class="mobile-header-anchor"></span>', unsafe_allow_html=True)
+        col_title, col_btn = st.columns([3, 1])
+        with col_title:
+            st.markdown(
+                '<h2 style="font-size: clamp(19px, 5vw, 24px); font-weight: 700; margin: 0; padding: 0; white-space: nowrap;">📊 期貨與美股看版</h2>',
+                unsafe_allow_html=True
+            )
+        with col_btn:
+            if st.button("🔄 刷新", key="manual_refresh_btn"):
+                st.cache_data.clear()
+                st.rerun()
 
-with col_refresh3:
-    refresh_sec = st.number_input("刷新秒數", min_value=30, max_value=3600, value=30, step=30)
+    # --- 取得資料 ---
+    with st.spinner("正在精準同步全球市場最新數據..."):
+        chart_data = fetch_yahoo_batch(chart_tickers, include_intraday=True)
+        txf_item = get_txf_night_data()
+        chart_data.insert(3, txf_item)
+        chart_data_map = {d["商品名稱"]: d for d in chart_data}
 
-# --- 取得資料 ---
-with st.spinner("正在精準同步全球市場最新數據..."):
-    market_data = fetch_yahoo_market_data(market_tickers).copy()
-    txf_item = get_txf_night_data()
-    market_data.insert(3, txf_item)
-    data_map = {d["商品名稱"]: d for d in market_data}
+        table_data = fetch_yahoo_batch(table_tickers, include_intraday=False)
 
-futures_names = ["小道瓊", "小S&P500", "小那斯達克", "台指期夜盤"]
-index_names = ["道瓊指數", "S&P500", "那斯達克", "費城半導體"]
+    futures_names = ["小道瓊", "小S&P500", "小那斯達克", "台指期夜盤"]
+    index_names = ["道瓊指數", "S&P500", "那斯達克", "費城半導體"]
 
-# --- 1. 分段按鈕切換走勢圖 (直接綁定 key，按 1 次即切換且自動刷新不跳回) ---
-tab_options = ["🇺🇸 期貨與夜盤", "🏛️ 美股現貨"]
-if "last_valid_tab" not in st.session_state:
-    st.session_state["last_valid_tab"] = tab_options[0]
+    # --- 1. 分段按鈕切換走勢圖 (直接綁定 key，按 1 次即切換且自動刷新不跳回) ---
+    tab_options = ["🇺🇸 期貨與夜盤", "🏛️ 美股現貨"]
+    if "last_valid_tab" not in st.session_state:
+        st.session_state["last_valid_tab"] = tab_options[0]
 
-if "selected_market_tab" not in st.session_state or st.session_state["selected_market_tab"] not in tab_options:
-    st.session_state["selected_market_tab"] = st.session_state["last_valid_tab"]
+    if "selected_market_tab" not in st.session_state or st.session_state["selected_market_tab"] not in tab_options:
+        st.session_state["selected_market_tab"] = st.session_state["last_valid_tab"]
 
-if hasattr(st, "segmented_control"):
-    selected_tab = st.segmented_control(
-        "切換走勢圖分頁",
-        options=tab_options,
-        key="selected_market_tab",
-        label_visibility="collapsed"
-    )
-    if selected_tab in tab_options:
-        st.session_state["last_valid_tab"] = selected_tab
+    if hasattr(st, "segmented_control"):
+        selected_tab = st.segmented_control(
+            "切換走勢圖分頁",
+            options=tab_options,
+            key="selected_market_tab",
+            label_visibility="collapsed"
+        )
+        if selected_tab in tab_options:
+            st.session_state["last_valid_tab"] = selected_tab
+        else:
+            selected_tab = st.session_state["last_valid_tab"]
     else:
-        selected_tab = st.session_state["last_valid_tab"]
-else:
-    selected_tab = st.radio(
-        "切換走勢圖分頁",
-        options=tab_options,
-        horizontal=True,
-        key="selected_market_tab",
-        label_visibility="collapsed"
+        selected_tab = st.radio(
+            "切換走勢圖分頁",
+            options=tab_options,
+            horizontal=True,
+            key="selected_market_tab",
+            label_visibility="collapsed"
+        )
+        st.session_state["last_valid_tab"] = selected_tab
+
+    chart_targets = futures_names if selected_tab == tab_options[0] else index_names
+
+    # 使用獨立容器搭配 CSS 錨點，讓手機版也強制保持 2x2 畫面
+    try:
+        grid_container = st.container(key="mobile_chart_grid")
+    except TypeError:
+        grid_container = st.container()
+
+    with grid_container:
+        st.markdown('<span class="mobile-2col-anchor"></span>', unsafe_allow_html=True)
+        for i in range(0, len(chart_targets), 2):
+            c1, c2 = st.columns(2)
+            with c1:
+                name1 = chart_targets[i]
+                if name1 in chart_data_map:
+                    render_independent_chart_block(chart_data_map[name1], chart_tickers)
+            with c2:
+                if i + 1 < len(chart_targets):
+                    name2 = chart_targets[i + 1]
+                    if name2 in chart_data_map:
+                        render_independent_chart_block(chart_data_map[name2], chart_tickers)
+
+    st.markdown("---")
+
+    # --- 2. 數據總覽表 (不含美國大盤與期貨，顯示 ADR 與重點科技股) ---
+    st.markdown(
+        '<h3 style="font-size: clamp(16px, 4.2vw, 20px); font-weight: 700; margin: 0 0 8px 0; padding: 0;">📋 數據總覽</h3>',
+        unsafe_allow_html=True
     )
-    st.session_state["last_valid_tab"] = selected_tab
+    render_clickable_html_table(table_data, table_tickers)
 
-chart_targets = futures_names if selected_tab == tab_options[0] else index_names
 
-# 使用獨立容器搭配 CSS 錨點，讓手機版也強制保持 2x2 畫面
-try:
-    grid_container = st.container(key="mobile_chart_grid")
-except TypeError:
-    grid_container = st.container()
+# ===== 固定每 60 秒自動刷新 =====
+if hasattr(st, "fragment"):
+    @st.fragment(run_every=AUTO_REFRESH_SEC)
+    def auto_refresh_dashboard():
+        render_dashboard()
 
-with grid_container:
-    st.markdown('<span class="mobile-2col-anchor"></span>', unsafe_allow_html=True)
-    for i in range(0, len(chart_targets), 2):
-        c1, c2 = st.columns(2)
-        with c1:
-            name1 = chart_targets[i]
-            if name1 in data_map:
-                render_independent_chart_block(data_map[name1], market_tickers)
-        with c2:
-            if i + 1 < len(chart_targets):
-                name2 = chart_targets[i + 1]
-                if name2 in data_map:
-                    render_independent_chart_block(data_map[name2], market_tickers)
-
-st.markdown("---")
-
-# --- 2. 數據總覽表 (獨立在下方，不隨分頁切換，含台積電ADR、日月光ADR) ---
-st.markdown(
-    '<h3 style="font-size: clamp(16px, 4.2vw, 20px); font-weight: 700; margin: 0 0 8px 0; padding: 0;">📋 數據總覽</h3>',
-    unsafe_allow_html=True
-)
-render_clickable_html_table(market_data, market_tickers)
-
-# ===== 自動刷新 =====
-if auto_refresh:
-    time.sleep(refresh_sec)
+    auto_refresh_dashboard()
+else:
+    render_dashboard()
+    time.sleep(AUTO_REFRESH_SEC)
     st.rerun()

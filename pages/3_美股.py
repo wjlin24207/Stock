@@ -41,7 +41,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("📊 期貨與美股看版")
+# 縮小最上方大標題字體
+st.markdown(
+    '<h2 style="font-size: clamp(19px, 5vw, 24px); font-weight: 700; margin: 0 0 12px 0; padding: 0;">📊 期貨與美股看版</h2>',
+    unsafe_allow_html=True
+)
 
 # 監控的商品代號與對應外部連結
 market_tickers = {
@@ -259,7 +263,7 @@ def get_color_style(change):
 
 
 def create_independent_chart(item):
-    """ 建立 2x2 緊湊即時走勢圖：鎖定拖拉與縮放，保留點擊查看價位 """
+    """ 建立 2x2 緊湊即時走勢圖：隱藏 Y 軸數字、鎖定拖拉與縮放，保留點擊查看價位 """
     times = item["times"]
     prices = item["prices"]
     prev_close = item["昨收"]
@@ -294,7 +298,7 @@ def create_independent_chart(item):
         hovertemplate="%{x}<br>%{y:,.2f}<extra></extra>"
     ))
 
-    # 昨收平盤虛線 (2x2 版面精簡，保留參考線不加過長文字以免遮擋)
+    # 昨收平盤虛線
     if prev_close and prev_close > 0:
         fig.add_hline(
             y=prev_close,
@@ -325,12 +329,10 @@ def create_independent_chart(item):
         yaxis=dict(
             fixedrange=True,
             range=[y_min - pad, y_max + pad],
-            side="right",
+            showticklabels=False,  # 拿掉 Y 軸數字
             showgrid=True,
             gridcolor="rgba(255, 255, 255, 0.06)",
-            nticks=3,
-            tickfont=dict(color="#8A919E", size=10),
-            tickformat=",.0f"
+            nticks=3
         )
     )
     return fig
@@ -400,7 +402,7 @@ def render_independent_chart_block(item, tickers_dict):
 
 
 def render_clickable_html_table(market_data, tickers_dict):
-    """ 手機友善 HTML 總表：原生 <a> 超連結，單指輕點即開啟，不會觸發編輯儲存格 """
+    """ 手機友善 HTML 總表：縮小字體與間距，原生 <a> 超連結單指輕點即開啟 """
     rows_html = []
     for item in market_data:
         name = item["商品名稱"]
@@ -412,24 +414,24 @@ def render_clickable_html_table(market_data, tickers_dict):
 
         rows_html.append(compact_html(f"""
             <tr style="border-bottom: 1px solid #2A2E39;">
-                <td style="padding: 12px 10px; text-align: left; white-space: nowrap;">
-                    <a href="{url}" target="_blank" style="color: #60A5FA; text-decoration: none; font-weight: 600; display: inline-block; padding: 4px 0;">{name} ↗</a>
+                <td style="padding: 8px 8px; text-align: left; white-space: nowrap;">
+                    <a href="{url}" target="_blank" style="color: #60A5FA; text-decoration: none; font-weight: 600; display: inline-block; padding: 2px 0;">{name} ↗</a>
                 </td>
-                <td style="padding: 12px 10px; text-align: right; color: #FFFFFF; font-family: monospace; white-space: nowrap;">{price:,.2f}</td>
-                <td style="padding: 12px 10px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{change:,.2f}</td>
-                <td style="padding: 12px 10px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{pct:.2f}%</td>
+                <td style="padding: 8px 8px; text-align: right; color: #FFFFFF; font-family: monospace; white-space: nowrap;">{price:,.2f}</td>
+                <td style="padding: 8px 8px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{change:,.2f}</td>
+                <td style="padding: 8px 8px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{pct:.2f}%</td>
             </tr>
         """))
 
     table_html = compact_html(f"""
         <div style="overflow-x: auto; border-radius: 10px; border: 1px solid #2A2E39; background-color: #1E222D;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <thead>
                     <tr style="background-color: #161922; border-bottom: 2px solid #2A2E39; color: #9BA3B4;">
-                        <th style="padding: 11px 10px; text-align: left; white-space: nowrap;">商品名稱</th>
-                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">最新價格</th>
-                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">漲跌點數</th>
-                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">漲跌幅</th>
+                        <th style="padding: 9px 8px; text-align: left; white-space: nowrap;">商品名稱</th>
+                        <th style="padding: 9px 8px; text-align: right; white-space: nowrap;">最新價格</th>
+                        <th style="padding: 9px 8px; text-align: right; white-space: nowrap;">漲跌點數</th>
+                        <th style="padding: 9px 8px; text-align: right; white-space: nowrap;">漲跌幅</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -464,22 +466,25 @@ with st.spinner("正在精準同步全球市場最新數據..."):
 futures_names = ["小道瓊", "小S&P500", "小那斯達克", "台指期夜盤"]
 index_names = ["道瓊指數", "S&P500", "那斯達克", "費城半導體"]
 
-# --- 1. 分段按鈕切換走勢圖 (支援自動刷新記憶狀態，不會跳回第一頁) ---
+# --- 1. 分段按鈕切換走勢圖 (直接綁定 key，按 1 次即切換且自動刷新不跳回) ---
 tab_options = ["🇺🇸 期貨與夜盤", "🏛️ 美股現貨"]
-if "selected_market_tab" not in st.session_state:
-    st.session_state["selected_market_tab"] = tab_options[0]
+if "last_valid_tab" not in st.session_state:
+    st.session_state["last_valid_tab"] = tab_options[0]
+
+if "selected_market_tab" not in st.session_state or st.session_state["selected_market_tab"] not in tab_options:
+    st.session_state["selected_market_tab"] = st.session_state["last_valid_tab"]
 
 if hasattr(st, "segmented_control"):
     selected_tab = st.segmented_control(
         "切換走勢圖分頁",
         options=tab_options,
-        default=st.session_state["selected_market_tab"],
+        key="selected_market_tab",
         label_visibility="collapsed"
     )
-    if selected_tab is None:
-        selected_tab = st.session_state["selected_market_tab"]
+    if selected_tab in tab_options:
+        st.session_state["last_valid_tab"] = selected_tab
     else:
-        st.session_state["selected_market_tab"] = selected_tab
+        selected_tab = st.session_state["last_valid_tab"]
 else:
     selected_tab = st.radio(
         "切換走勢圖分頁",
@@ -488,6 +493,7 @@ else:
         key="selected_market_tab",
         label_visibility="collapsed"
     )
+    st.session_state["last_valid_tab"] = selected_tab
 
 chart_targets = futures_names if selected_tab == tab_options[0] else index_names
 
@@ -514,7 +520,10 @@ with grid_container:
 st.markdown("---")
 
 # --- 2. 數據總覽表 (獨立在下方，不隨分頁切換，含台積電ADR、日月光ADR) ---
-st.subheader("📋 數據總覽")
+st.markdown(
+    '<h3 style="font-size: clamp(16px, 4.2vw, 20px); font-weight: 700; margin: 0 0 8px 0; padding: 0;">📋 數據總覽</h3>',
+    unsafe_allow_html=True
+)
 render_clickable_html_table(market_data, market_tickers)
 
 # ===== 自動刷新 =====

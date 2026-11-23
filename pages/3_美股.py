@@ -13,9 +13,37 @@ urllib3.disable_warnings()
 
 # 設定網頁標題與配置
 st.set_page_config(page_title="期貨與美股", layout="wide")
+
+# 注入響應式 CSS：僅鎖定「走勢圖區塊」在手機版也強制維持 2x2 並排，不影響其他元件
+st.markdown(
+    """
+    <style>
+    @media (max-width: 640px) {
+        .block-container {
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-2col-anchor) div[data-testid="stHorizontalBlock"],
+        .st-key-mobile_chart_grid div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 6px !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mobile-2col-anchor) div[data-testid="stColumn"],
+        .st-key-mobile_chart_grid div[data-testid="stColumn"] {
+            width: calc(50% - 3px) !important;
+            flex: 1 1 calc(50% - 3px) !important;
+            min-width: 0 !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("📊 期貨與美股看版")
 
-# 監控的商品代號與對應點數跳轉的外部連結
+# 監控的商品代號與對應外部連結
 market_tickers = {
     "小道瓊": {"ticker": "YM=F", "url": "https://finance.yahoo.com.tw/quote/YM=F"},
     "小S&P500": {"ticker": "ES=F", "url": "https://finance.yahoo.com.tw/quote/ES=F"},
@@ -25,9 +53,14 @@ market_tickers = {
     "S&P500": {"ticker": "^GSPC", "url": "https://finance.yahoo.com.tw/quote/^GSPC"},
     "那斯達克": {"ticker": "^IXIC", "url": "https://finance.yahoo.com.tw/quote/^IXIC"},
     "費城半導體": {"ticker": "^SOX", "url": "https://finance.yahoo.com.tw/quote/^SOX"},
-    "台積電ADR": {"ticker": "TSM", "url": "https://finance.yahoo.com/quote/TSM"},
-    "日月光ADR": {"ticker": "ASX", "url": "https://finance.yahoo.com/quote/ASX"}
+    "台積電ADR": {"ticker": "TSM", "url": "https://tw.stock.yahoo.com/quote/TSM"},
+    "日月光ADR": {"ticker": "ASX", "url": "https://tw.stock.yahoo.com/quote/ASX"}
 }
+
+
+def compact_html(html_str):
+    """ 移除每行縮排與多餘換行，避免 Streamlit Markdown 將 4 格以上縮排誤判為程式碼區塊 """
+    return "".join(line.strip() for line in html_str.splitlines())
 
 
 def fetch_yahoo_historical_fallback(ticker, headers):
@@ -217,26 +250,39 @@ def fetch_yahoo_market_data(tickers_dict):
     return data_list
 
 
-def create_sparkline(times, prices, prev_close, color):
-    """ 建立極簡即時走勢圖 (含昨收平盤虛線) """
+def get_color_style(change):
+    if change > 0:
+        return "#FF4B4B", "▲", "+", "rgba(255, 75, 75, 0.14)"
+    elif change < 0:
+        return "#00B050", "▼", "", "rgba(0, 176, 80, 0.14)"
+    return "#888888", "—", "", "rgba(136, 136, 136, 0.14)"
+
+
+def create_independent_chart(item):
+    """ 建立 2x2 緊湊即時走勢圖：鎖定拖拉與縮放，保留點擊查看價位 """
+    times = item["times"]
+    prices = item["prices"]
+    prev_close = item["昨收"]
+    color, _, _, fill_color = get_color_style(item["漲跌點數"])
+
     fig = go.Figure()
     if not prices:
+        fig.add_annotation(
+            text="無分時資料",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#888888", size=12)
+        )
         fig.update_layout(
-            height=90,
-            margin=dict(l=0, r=0, t=4, b=0),
-            paper_bgcolor="#1E222D",
-            plot_bgcolor="#1E222D",
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False)
+            height=175,
+            margin=dict(l=4, r=4, t=6, b=18),
+            paper_bgcolor="#161922",
+            plot_bgcolor="#161922",
+            xaxis=dict(visible=False, fixedrange=True),
+            yaxis=dict(visible=False, fixedrange=True),
+            dragmode=False
         )
         return fig
-
-    if color == "#FF4B4B":
-        fill_color = "rgba(255, 75, 75, 0.15)"
-    elif color == "#00B050":
-        fill_color = "rgba(0, 176, 80, 0.15)"
-    else:
-        fill_color = "rgba(136, 136, 136, 0.15)"
 
     fig.add_trace(go.Scatter(
         x=times,
@@ -245,15 +291,15 @@ def create_sparkline(times, prices, prev_close, color):
         line=dict(color=color, width=2),
         fill="tozeroy",
         fillcolor=fill_color,
-        hovertemplate="%{x}<br>點位: %{y:,.2f}<extra></extra>"
+        hovertemplate="%{x}<br>%{y:,.2f}<extra></extra>"
     ))
 
-    # 昨收平盤參考線
+    # 昨收平盤虛線 (2x2 版面精簡，保留參考線不加過長文字以免遮擋)
     if prev_close and prev_close > 0:
         fig.add_hline(
             y=prev_close,
             line_dash="dot",
-            line_color="rgba(255, 255, 255, 0.35)",
+            line_color="rgba(255, 255, 255, 0.4)",
             line_width=1
         )
 
@@ -262,61 +308,137 @@ def create_sparkline(times, prices, prev_close, color):
     pad = (y_max - y_min) * 0.12 if y_max != y_min else 1
 
     fig.update_layout(
-        height=90,
-        margin=dict(l=0, r=0, t=4, b=0),
-        paper_bgcolor="#1E222D",
-        plot_bgcolor="#1E222D",
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False, range=[y_min - pad, y_max + pad]),
+        height=175,
+        margin=dict(l=4, r=4, t=8, b=20),
+        paper_bgcolor="#161922",
+        plot_bgcolor="#161922",
+        dragmode=False,
+        hovermode="x unified",
         showlegend=False,
-        hovermode="x unified"
+        xaxis=dict(
+            fixedrange=True,
+            showgrid=False,
+            nticks=3,
+            tickfont=dict(color="#8A919E", size=10),
+            linecolor="#2A2E39"
+        ),
+        yaxis=dict(
+            fixedrange=True,
+            range=[y_min - pad, y_max + pad],
+            side="right",
+            showgrid=True,
+            gridcolor="rgba(255, 255, 255, 0.06)",
+            nticks=3,
+            tickfont=dict(color="#8A919E", size=10),
+            tickformat=",.0f"
+        )
     )
     return fig
 
 
-def render_custom_metric_with_chart(item, tickers_dict):
+def render_independent_chart_block(item, tickers_dict):
+    """ 獨立走勢圖區塊：上方兩行緊湊文字 (適配手機 2x2 寬度) + 下方鎖定防誤觸走勢圖 """
     name = item["商品名稱"]
     price = item["最新價格"]
     change = item["漲跌點數"]
     pct = item["漲跌幅 (%)"]
-    prev_close = item["昨收"]
     target_url = tickers_dict.get(name, {}).get("url", "#")
+    color, icon, sign, _ = get_color_style(change)
 
-    if price > 0:
-        if change > 0:
-            color, icon, sign = "#FF4B4B", "▲", "+"
-        elif change < 0:
-            color, icon, sign = "#00B050", "▼", ""
-        else:
-            color, icon, sign = "#888888", "—", ""
+    header_html = compact_html(f"""
+        <div style="
+            background-color: #161922;
+            border-left: 4px solid {color};
+            border-radius: 6px 6px 0 0;
+            padding: 6px 8px 4px 8px;
+            font-family: monospace;
+            overflow: hidden;
+        ">
+            <div style="
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                white-space: nowrap;
+                gap: 4px;
+            ">
+                <a href="{target_url}" target="_blank" style="
+                    text-decoration: none;
+                    color: #E0E3EB;
+                    font-size: clamp(12px, 3.3vw, 15px);
+                    font-weight: 700;
+                ">{name} ↗</a>
+                <span style="
+                    color: #FFFFFF;
+                    font-size: clamp(12px, 3.3vw, 16px);
+                    font-weight: 700;
+                ">{price:,.2f}</span>
+            </div>
+            <div style="
+                color: {color};
+                font-size: clamp(11px, 3.0vw, 14px);
+                font-weight: 600;
+                margin-top: 2px;
+                white-space: nowrap;
+            ">
+                {icon} {sign}{change:,.2f} ({sign}{pct:.2f}%)
+            </div>
+        </div>
+    """)
+    st.markdown(header_html, unsafe_allow_html=True)
 
-        # 上半部：報價字卡
-        st.markdown(
-            f"""
-            <a href="{target_url}" target="_blank" style="text-decoration: none; color: inherit;">
-                <div style="
-                    background-color: #1E222D;
-                    padding: 14px 16px 8px 16px;
-                    border-radius: 10px 10px 0 0;
-                    border-left: 6px solid {color};
-                    cursor: pointer;
-                    transition: transform 0.2s ease, box-shadow 0.2s ease;
-                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)';"
-                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <div style="color: #AEB3B7; font-size: 20px; font-weight: 500; margin-bottom: 4px;">{name} ↗</div>
-                    <div style="color: #FFFFFF; font-size: 26px; font-weight: 700; font-family: monospace; line-height: 1.2;">{price:,.2f}</div>
-                    <div style="color: {color}; font-size: 20px; font-weight: 600; margin-top: 4px; font-family: monospace;">
-                        {icon} {sign}{change:,.2f} ({sign}{pct:.2f}%)
-                    </div>
-                </div>
-            </a>
-            """,
-            unsafe_allow_html=True
-        )
+    fig = create_independent_chart(item)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+            "doubleClick": False
+        },
+        key=f"ind_chart_{name}"
+    )
 
-        # 下半部：即時走勢圖
-        fig = create_sparkline(item["times"], item["prices"], prev_close, color)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=f"chart_{name}")
+
+def render_clickable_html_table(market_data, tickers_dict):
+    """ 手機友善 HTML 總表：原生 <a> 超連結，單指輕點即開啟，不會觸發編輯儲存格 """
+    rows_html = []
+    for item in market_data:
+        name = item["商品名稱"]
+        price = item["最新價格"]
+        change = item["漲跌點數"]
+        pct = item["漲跌幅 (%)"]
+        url = tickers_dict.get(name, {}).get("url", "#")
+        color, _, sign, _ = get_color_style(change)
+
+        rows_html.append(compact_html(f"""
+            <tr style="border-bottom: 1px solid #2A2E39;">
+                <td style="padding: 12px 10px; text-align: left; white-space: nowrap;">
+                    <a href="{url}" target="_blank" style="color: #60A5FA; text-decoration: none; font-weight: 600; display: inline-block; padding: 4px 0;">{name} ↗</a>
+                </td>
+                <td style="padding: 12px 10px; text-align: right; color: #FFFFFF; font-family: monospace; white-space: nowrap;">{price:,.2f}</td>
+                <td style="padding: 12px 10px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{change:,.2f}</td>
+                <td style="padding: 12px 10px; text-align: right; color: {color}; font-weight: 600; font-family: monospace; white-space: nowrap;">{sign}{pct:.2f}%</td>
+            </tr>
+        """))
+
+    table_html = compact_html(f"""
+        <div style="overflow-x: auto; border-radius: 10px; border: 1px solid #2A2E39; background-color: #1E222D;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+                <thead>
+                    <tr style="background-color: #161922; border-bottom: 2px solid #2A2E39; color: #9BA3B4;">
+                        <th style="padding: 11px 10px; text-align: left; white-space: nowrap;">商品名稱</th>
+                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">最新價格</th>
+                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">漲跌點數</th>
+                        <th style="padding: 11px 10px; text-align: right; white-space: nowrap;">漲跌幅</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {"".join(rows_html)}
+                </tbody>
+            </table>
+        </div>
+    """)
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 # --- 控制列 ---
@@ -339,64 +461,61 @@ with st.spinner("正在精準同步全球市場最新數據..."):
     market_data.insert(3, txf_item)
     data_map = {d["商品名稱"]: d for d in market_data}
 
-# 1. 美國重要指數期貨
-st.subheader("🇺🇸 美國重要指數期貨 (夜盤即時動態)")
-cols_fut = st.columns(4)
-for name, col in zip(["小道瓊", "小S&P500", "小那斯達克", "台指期夜盤"], cols_fut):
-    with col:
-        if name in data_map:
-            render_custom_metric_with_chart(data_map[name], market_tickers)
+futures_names = ["小道瓊", "小S&P500", "小那斯達克", "台指期夜盤"]
+index_names = ["道瓊指數", "S&P500", "那斯達克", "費城半導體"]
+
+# --- 1. 分段按鈕切換走勢圖 (支援自動刷新記憶狀態，不會跳回第一頁) ---
+tab_options = ["🇺🇸 期貨與夜盤", "🏛️ 美股現貨"]
+if "selected_market_tab" not in st.session_state:
+    st.session_state["selected_market_tab"] = tab_options[0]
+
+if hasattr(st, "segmented_control"):
+    selected_tab = st.segmented_control(
+        "切換走勢圖分頁",
+        options=tab_options,
+        default=st.session_state["selected_market_tab"],
+        label_visibility="collapsed"
+    )
+    if selected_tab is None:
+        selected_tab = st.session_state["selected_market_tab"]
+    else:
+        st.session_state["selected_market_tab"] = selected_tab
+else:
+    selected_tab = st.radio(
+        "切換走勢圖分頁",
+        options=tab_options,
+        horizontal=True,
+        key="selected_market_tab",
+        label_visibility="collapsed"
+    )
+
+chart_targets = futures_names if selected_tab == tab_options[0] else index_names
+
+# 使用獨立容器搭配 CSS 錨點，讓手機版也強制保持 2x2 畫面
+try:
+    grid_container = st.container(key="mobile_chart_grid")
+except TypeError:
+    grid_container = st.container()
+
+with grid_container:
+    st.markdown('<span class="mobile-2col-anchor"></span>', unsafe_allow_html=True)
+    for i in range(0, len(chart_targets), 2):
+        c1, c2 = st.columns(2)
+        with c1:
+            name1 = chart_targets[i]
+            if name1 in data_map:
+                render_independent_chart_block(data_map[name1], market_tickers)
+        with c2:
+            if i + 1 < len(chart_targets):
+                name2 = chart_targets[i + 1]
+                if name2 in data_map:
+                    render_independent_chart_block(data_map[name2], market_tickers)
 
 st.markdown("---")
 
-# 2. 美國現貨指數
-st.subheader("🏛️ 美國現貨指數")
-cols_idx = st.columns(4)
-for name, col in zip(["道瓊指數", "S&P500", "那斯達克", "費城半導體"], cols_idx):
-    with col:
-        if name in data_map:
-            render_custom_metric_with_chart(data_map[name], market_tickers)
-
-# 3. 數據總覽表
-st.markdown("### 📋 數據總覽")
-df_display = pd.DataFrame(market_data)[["商品名稱", "最新價格", "漲跌點數", "漲跌幅 (%)"]].copy()
-df_display[["最新價格", "漲跌點數", "漲跌幅 (%)"]] = df_display[["最新價格", "漲跌點數", "漲跌幅 (%)"]].round(2)
-
-
-def make_link_value(name):
-    url = market_tickers.get(name, {}).get("url", "")
-    if url:
-        return f"{url}#{name} ↗"
-    return name
-
-
-df_display["商品名稱"] = df_display["商品名稱"].apply(make_link_value)
-
-
-def style_positive_negative(val):
-    if isinstance(val, (int, float)):
-        if val > 0:
-            return "color: #FF4B4B; font-weight: bold;"
-        elif val < 0:
-            return "color: #00B050; font-weight: bold;"
-    return ""
-
-
-styled_df = df_display.fillna("N/A").style.map(style_positive_negative, subset=["漲跌點數", "漲跌幅 (%)"])
-st.dataframe(
-    styled_df,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "商品名稱": st.column_config.LinkColumn(
-            "商品名稱",
-            display_text=r"#(.*)$"
-        ),
-        "最新價格": st.column_config.NumberColumn(format="%.2f"),
-        "漲跌點數": st.column_config.NumberColumn(format="%.2f"),
-        "漲跌幅 (%)": st.column_config.NumberColumn(format="%.2f%%")
-    }
-)
+# --- 2. 數據總覽表 (獨立在下方，不隨分頁切換，含台積電ADR、日月光ADR) ---
+st.subheader("📋 數據總覽")
+render_clickable_html_table(market_data, market_tickers)
 
 # ===== 自動刷新 =====
 if auto_refresh:

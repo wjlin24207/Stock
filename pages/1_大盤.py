@@ -5,7 +5,7 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/4_當日大盤走勢.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v19.py
+    streamlit run taiex_intraday_app-v20.py
 """
 
 import re
@@ -40,6 +40,13 @@ TZ_TAIPEI = ZoneInfo("Asia/Taipei")
 st.markdown(
     """
     <style>
+    .main-title {
+        font-size: 1.45rem;
+        font-weight: 700;
+        color: #FAFAFA;
+        margin: 0 0 10px 0;
+        line-height: 1.3;
+    }
     .section-title {
         font-size: 1.08rem;
         font-weight: 700;
@@ -1469,7 +1476,9 @@ def build_intraday_chart(
             col=1,
         )
 
+    fig.update_xaxes(fixedrange=True)
     fig.update_yaxes(
+        fixedrange=True,
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
@@ -1479,11 +1488,12 @@ def build_intraday_chart(
     )
 
     fig.update_layout(
-        title=dict(text=title, font=dict(size=18)),
+        title=dict(text=title, font=dict(size=15)),
         template="plotly_dark",
         height=620 if has_volume else 500,
         margin=dict(l=20, r=20, t=50, b=20),
         hovermode="x unified",
+        dragmode=False,
         spikedistance=-1,
         xaxis_rangeslider_visible=False,
         xaxis2_rangeslider_visible=False,
@@ -1705,7 +1715,9 @@ def build_kline_90d_chart(
         row=3,
         col=1,
     )
+    fig.update_xaxes(fixedrange=True)
     fig.update_yaxes(
+        fixedrange=True,
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
@@ -1715,11 +1727,12 @@ def build_kline_90d_chart(
     )
 
     fig.update_layout(
-        title=dict(text=title, font=dict(size=18)),
+        title=dict(text=title, font=dict(size=15)),
         template="plotly_dark",
         height=820,
         margin=dict(l=20, r=20, t=55, b=20),
         hovermode="x unified",
+        dragmode=False,
         spikedistance=-1,
         xaxis_rangeslider_visible=False,
         xaxis3_rangeslider_visible=False,
@@ -1754,7 +1767,7 @@ def render_metric_card(label: str, value: str, delta_text: str = "", color: str 
 # ==========================================
 # 主畫面（共用控制面板 + 分頁切換）
 # ==========================================
-st.title("📈 大盤與 ETF 走勢儀表板")
+st.markdown('<div class="main-title">📈 大盤與 ETF 走勢儀表板</div>', unsafe_allow_html=True)
 
 tw_directory = load_tw_stock_directory()
 
@@ -1925,7 +1938,7 @@ with tab_intraday:
             title=f"{selected_name} 當日走勢 ({trade_date}, {interval})",
             volume_mode=volume_mode,
         )
-        st.plotly_chart(fig_intra, use_container_width=True)
+        st.plotly_chart(fig_intra, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
 
         if volume_mode == "turnover_yi" and ("Volume" not in df_intra.columns or df_intra["Volume"].sum() <= 0):
             st.info("ℹ️ 證交所「每 5 秒委託成交統計 (`MI_5MINS`)」為盤後公布資料，盤中即時階段暫不顯示分時成交金額柱狀圖，待盤後結算公布即會自動出現。")
@@ -2062,7 +2075,7 @@ with tab_kline:
             show_ma60=show_ma60,
             show_bb=show_bb,
         )
-        st.plotly_chart(fig_kline, use_container_width=True)
+        st.plotly_chart(fig_kline, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
 
 if auto_refresh:
     time.sleep(refresh_sec)

@@ -1,13 +1,15 @@
 """
-台股當日大盤走勢 & 近90日K線技術分析 — 純證交所官方即時版 (pages/)
+台股當日大盤走勢 & 近90日K線技術分析 & ETF成分股即時行情 (pages/)
 (Streamlit + TWSE/TPEx OpenAPI + yfinance + Plotly)
 放置方式:
-    將此檔案放入專案的 pages/ 資料夾（例如 pages/4_當日大盤走勢.py）
+    將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
-    pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v22.py
+    pip install streamlit requests yfinance plotly pandas openpyxl
+    streamlit run taiex_intraday_app-v23.py
 """
 
+import io
+from pathlib import Path
 import re
 import time
 from datetime import datetime, timedelta
@@ -236,6 +238,366 @@ def _calc_twse_incl_etf_ratio(
     if mv_all <= 0:
         return None
     return round((mv_all / total_loan_ntd) * 100.0, 2)
+
+
+# ==========================================
+# ETF 成分股資料讀取 (etf_holdings/) & 批量即時報價
+# ==========================================
+GITHUB_HOLDINGS_API = "https://api.github.com/repos/wjlin24207/Stock/contents/etf_holdings"
+GITHUB_HOLDINGS_RAW = "https://raw.githubusercontent.com/wjlin24207/Stock/main/etf_holdings"
+
+
+def _find_local_holdings_dir() -> Path | None:
+    """尋找本機或 Streamlit Cloud 部署環境中的 etf_holdings 資料夾"""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "etf_holdings",
+        here / "etf_holdings",
+        Path.cwd() / "etf_holdings",
+    ]
+    for p in candidates:
+        if p.exists() and p.is_dir():
+            return p
+    return None
+
+
+def _extract_etf_code_and_date(filename: str) -> tuple[str | None, str]:
+    """
+    從檔名解析 ETF 代碼與日期，支援：
+      - YYYY-MM-DD_0050_full_holdings.xlsx
+      - 0050_2026-11-24.xlsx / 00981A.xlsx 等格式
+    """
+    stem = Path(filename).stem
+    date_m = re.search(r"(\d{4}-\d{2}-\d{2})", stem)
+    date_str = date_m.group(1) if date_m else ""
+
+    # 優先比對 YYYY-MM-DD_<ETF代碼>_... 格式
+    m_std = re.match(r"^\d{4}-\d{2}-\d{2}_([0-9A-Za-z]+)(?:_|$)", stem)
+    if m_std:
+        return m_std.group(1).upper(), date_str
+
+    # 其次比對常見台灣 ETF 代碼 (00 開頭 4~6 碼，可含英文字尾如 00981A)
+    m_etf = re.search(r"(?:^|_)(00\d{2,4}[A-Z]?)(?:_|$)", stem, re.IGNORECASE)
+    if m_etf:
+        return m_etf.group(1).upper(), date_str
+
+    return None, date_str
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def list_latest_etf_holdings_files() -> dict[str, dict]:
+    """
+    掃描 etf_holdings/ 資料夾，為每檔 ETF 選出最新日期的成分股檔案。
+    優先讀取本機/雲端倉庫目錄 (Stock/etf_holdings/)，若本機無該目錄則自動透過 GitHub 讀取。
+    回傳: { "0050": {"filename": "...", "date": "2026-11-24", "source_type": "local"|"github", "path_or_url": "..."}, ... }
+    """
+    entries = []
+    local_dir = _find_local_holdings_dir()
+
+    if local_dir is not None:
+        for f in local_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in (".xlsx", ".xls", ".csv") and not f.name.startswith("~$"):
+                etf_code, date_str = _extract_etf_code_and_date(f.name)
+                if etf_code:
+                    sort_key = (date_str, f.stat().st_mtime, f.name)
+                    entries.append(
+                        (
+                            etf_code,
+                            sort_key,
+                            {
+                                "etf_code": etf_code,
+                                "filename": f.name,
+                                "date": date_str,
+                                "source_type": "local",
+                                "path_or_url": str(f),
+                            },
+                        )
+                    )
+    else:
+        # 單機獨立測試時若不在 Git 倉庫內，自動改向 GitHub 倉庫讀取目錄清單
+        try:
+            resp = requests.get(
+                GITHUB_HOLDINGS_API,
+                headers={"Accept": "application/vnd.github.v3+json", "User-Agent": HTTP_HEADERS["User-Agent"]},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                items = resp.json()
+                if isinstance(items, list):
+                    for item in items:
+                        name = str(item.get("name", ""))
+                        if Path(name).suffix.lower() in (".xlsx", ".xls", ".csv"):
+                            etf_code, date_str = _extract_etf_code_and_date(name)
+                            if etf_code:
+                                dl_url = item.get("download_url") or f"{GITHUB_HOLDINGS_RAW}/{name}"
+                                sort_key = (date_str, 0.0, name)
+                                entries.append(
+                                    (
+                                        etf_code,
+                                        sort_key,
+                                        {
+                                            "etf_code": etf_code,
+                                            "filename": name,
+                                            "date": date_str,
+                                            "source_type": "github",
+                                            "path_or_url": dl_url,
+                                        },
+                                    )
+                                )
+        except Exception:
+            pass
+
+    latest_map: dict[str, tuple] = {}
+    for etf_code, sort_key, meta in entries:
+        if etf_code not in latest_map or sort_key > latest_map[etf_code][0]:
+            latest_map[etf_code] = (sort_key, meta)
+
+    return {k: v[1] for k, v in sorted(latest_map.items())}
+
+
+def _pick_col(columns: list[str], candidates: tuple[str, ...], exclude: tuple[str, ...] = ("ETF",)) -> str | None:
+    cols_clean = [(c, str(c).strip()) for c in columns]
+    # 1. 精準比對
+    for orig, clean in cols_clean:
+        if clean.upper() in {e.upper() for e in exclude}:
+            continue
+        for cand in candidates:
+            if clean.lower() == cand.lower():
+                return orig
+    # 2. 包含比對
+    for orig, clean in cols_clean:
+        if clean.upper() in {e.upper() for e in exclude}:
+            continue
+        for cand in candidates:
+            if cand.lower() in clean.lower():
+                return orig
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_etf_holdings_table(source_type: str, path_or_url: str) -> pd.DataFrame:
+    """
+    讀取單一 ETF 成分股檔案，標準化為欄位：['代碼', '名稱', '權重']（依權重由大到小排序）。
+    """
+    try:
+        suffix = Path(path_or_url).suffix.lower()
+        if source_type == "local":
+            if suffix == ".csv":
+                raw_df = pd.read_csv(path_or_url)
+            else:
+                raw_df = pd.read_excel(path_or_url, sheet_name=0)
+        else:
+            resp = requests.get(path_or_url, headers={"User-Agent": HTTP_HEADERS["User-Agent"]}, timeout=10)
+            resp.raise_for_status()
+            buf = io.BytesIO(resp.content)
+            if suffix == ".csv":
+                raw_df = pd.read_csv(buf)
+            else:
+                raw_df = pd.read_excel(buf, sheet_name=0)
+    except Exception:
+        return pd.DataFrame()
+
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame()
+
+    cols = list(raw_df.columns)
+    code_col = _pick_col(cols, ("股票代碼", "股票代號", "證券代號", "成分股代碼", "成分股代號", "代碼", "代號", "code", "ticker"))
+    name_col = _pick_col(cols, ("股票名稱", "證券名稱", "成分股名稱", "名稱", "商品名稱", "name"))
+    weight_col = _pick_col(cols, ("權重", "持股比例", "持股權重", "比例", "比重", "weight"))
+
+    if code_col is None:
+        return pd.DataFrame()
+
+    records = []
+    skip_words = ("合計", "總計", "現金", "保證金", "期貨", "應收", "應付", "TOTAL", "CASH")
+
+    for _, row in raw_df.iterrows():
+        raw_c = row.get(code_col)
+        if raw_c is None or pd.isna(raw_c):
+            continue
+        code = str(raw_c).strip()
+        if code.endswith(".0"):
+            code = code[:-2]
+        code = code.upper()
+        if not code or code in ("NAN", "NONE", "-") or any(w in code for w in skip_words):
+            continue
+
+        name = ""
+        if name_col is not None and pd.notna(row.get(name_col)):
+            name = str(row.get(name_col)).strip()
+        if any(w in name.upper() for w in skip_words):
+            continue
+
+        w_val = _to_float(row.get(weight_col)) if weight_col is not None else None
+        records.append({"代碼": code, "名稱": name, "權重": w_val})
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+
+    # 若權重為小數形式（例如 0.1234 代表 12.34%），自動轉為百分比數值
+    valid_w = df["權重"].dropna()
+    if not valid_w.empty and valid_w.max() <= 1.0 and valid_w.sum() <= 1.05:
+        df["權重"] = df["權重"] * 100.0
+
+    # 合併重複代碼並依權重降冪排序
+    df = (
+        df.groupby("代碼", as_index=False)
+        .agg({"名稱": "first", "權重": "sum"})
+    )
+    df["權重"] = df["權重"].round(2)
+    df = df.sort_values(by=["權重", "代碼"], ascending=[False, True], na_position="last").reset_index(drop=True)
+    return df
+
+
+def _parse_mis_best_price(raw_book: str) -> float | None:
+    """從證交所 mis API 的最佳五檔字串 (例如 '1050.00_1045.00_...') 取出第一檔有效價格"""
+    if not raw_book:
+        return None
+    for part in str(raw_book).split("_"):
+        v = _to_float(part)
+        if v is not None and v > 0:
+            return v
+    return None
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_constituents_realtime_quotes(codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]) -> dict[str, dict]:
+    """
+    批量抓取成分股即時股價、漲跌點、漲跌幅：
+      1. 台股上市/上櫃標的優先向證交所/櫃買中心盤中即時系統 (mis.twse.com.tw) 批量查詢（25 檔一批，毫秒級回應）。
+      2. 若部分標的無即時成交價或為海外股票，自動以 yfinance 批量補齊。
+    回傳: { "2330": {"price": 1050.0, "change": +15.0, "change_pct": +1.45, "name": "台積電"}, ... }
+    """
+    if not codes:
+        return {}
+
+    hint_map = dict(market_hints)
+    quotes: dict[str, dict] = {}
+    tw_codes = []
+    foreign_codes = []
+
+    for c in codes:
+        if re.fullmatch(r"\d{4,6}[A-Z]?", c):
+            tw_codes.append(c)
+        else:
+            foreign_codes.append(c)
+
+    # 1. 證交所 / 櫃買中心盤中即時 API 批量查詢
+    if tw_codes:
+        channels = []
+        unknown_codes = []
+        for c in tw_codes:
+            mkt = hint_map.get(c, "")
+            if mkt == "上櫃":
+                channels.append(f"otc_{c}.tw")
+            elif mkt == "上市":
+                channels.append(f"tse_{c}.tw")
+            else:
+                channels.append(f"tse_{c}.tw")
+                unknown_codes.append(c)
+
+        # 對未在對照表中的代碼同時附上 otc 備援頻道，確保不漏抓上櫃股
+        for c in unknown_codes:
+            channels.append(f"otc_{c}.tw")
+
+        try:
+            session = requests.Session()
+            session.headers.update(HTTP_HEADERS)
+            session.get("https://mis.twse.com.tw/stock/index.jsp", timeout=5)
+            url = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+
+            chunk_size = 25
+            for i in range(0, len(channels), chunk_size):
+                batch = channels[i : i + chunk_size]
+                resp = session.get(
+                    url,
+                    params={
+                        "ex_ch": "|".join(batch),
+                        "json": "1",
+                        "delay": "0",
+                        "_": int(time.time() * 1000),
+                    },
+                    timeout=8,
+                )
+                resp.raise_for_status()
+                msg_array = resp.json().get("msgArray", [])
+                for item in msg_array:
+                    c = str(item.get("c", "")).strip().upper()
+                    if not c or c in quotes:
+                        continue
+                    prev_close = _to_float(item.get("y"))
+                    price = _to_float(item.get("z"))
+                    if price is None or price <= 0:
+                        price = (
+                            _parse_mis_best_price(item.get("b", ""))
+                            or _parse_mis_best_price(item.get("a", ""))
+                            or prev_close
+                        )
+                    if price is not None and price > 0:
+                        if prev_close is not None and prev_close > 0:
+                            chg = round(price - prev_close, 2)
+                            chg_pct = round((chg / prev_close) * 100.0, 2)
+                        else:
+                            chg = None
+                            chg_pct = None
+                        quotes[c] = {
+                            "price": round(price, 2),
+                            "change": chg,
+                            "change_pct": chg_pct,
+                            "name": str(item.get("n", "")).strip(),
+                        }
+        except Exception:
+            pass
+
+    # 2. 針對未抓到的台股代碼或海外成分股，改用 yfinance 批量補齊
+    missing_tw = [c for c in tw_codes if c not in quotes]
+    yf_targets = {}
+    for c in missing_tw:
+        suffix = ".TWO" if hint_map.get(c) == "上櫃" else ".TW"
+        yf_targets[f"{c}{suffix}"] = c
+    for c in foreign_codes:
+        yf_targets[c] = c
+
+    if yf_targets:
+        try:
+            tickers_list = list(yf_targets.keys())
+            hist = yf.download(
+                tickers=tickers_list,
+                period="5d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=False,
+                progress=False,
+                threads=True,
+            )
+            if hist is not None and not hist.empty:
+                for yf_sym, orig_code in yf_targets.items():
+                    try:
+                        if isinstance(hist.columns, pd.MultiIndex):
+                            if yf_sym not in hist.columns.get_level_values(0):
+                                continue
+                            sub = hist[yf_sym]["Close"].dropna()
+                        else:
+                            sub = hist["Close"].dropna()
+                        if len(sub) >= 1:
+                            curr_p = float(sub.iloc[-1])
+                            prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
+                            chg = round(curr_p - prev_p, 2)
+                            chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                            quotes[orig_code] = {
+                                "price": round(curr_p, 2),
+                                "change": chg,
+                                "change_pct": chg_pct,
+                                "name": "",
+                            }
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    return quotes
 
 
 # ==========================================
@@ -1863,7 +2225,7 @@ if search_not_found is not None:
     st.stop()
 
 # 分頁切換：當日走勢 vs 近 90 日 K 線
-tab_intraday, tab_kline = st.tabs(["📊 當日分時走勢", "🕯️ 近 90 個交易日 K 線"])
+tab_intraday, tab_kline, tab_holdings = st.tabs(["📊 當日分時走勢", "🕯️ 近 90 個交易日 K 線", "🧩 成分股即時行情"])
 
 # ------------------------------------------
 # Tab 1: 當日分時走勢 + 近 5 日三大法人與融資券表格（玩股網大盤融資維持率）
@@ -2092,6 +2454,95 @@ with tab_kline:
             show_bb=show_bb,
         )
         st.plotly_chart(fig_kline, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
+
+# ------------------------------------------
+# Tab 3: ETF 成分股即時行情（自動帶入 Stock/etf_holdings/ 最新成分股）
+# ------------------------------------------
+with tab_holdings:
+    holdings_files_map = list_latest_etf_holdings_files()
+
+    if not holdings_files_map:
+        st.warning("找不到 `etf_holdings/` 資料夾內的成分股檔案（格式：`YYYY-MM-DD_ETF代碼_full_holdings.xlsx`），請確認資料夾路徑是否正確。")
+    else:
+        current_base_code = ""
+        if ticker.endswith((".TW", ".TWO")) and not ticker.startswith("^"):
+            current_base_code = ticker.rsplit(".", 1)[0].upper()
+
+        target_etf_code = None
+        if current_base_code in holdings_files_map:
+            target_etf_code = current_base_code
+        else:
+            st.info(
+                f"目前上方選擇的「**{selected_name}**」在 `etf_holdings/` 中無成分股資料，"
+                "請從下方選擇要檢視的 ETF："
+            )
+            avail_codes = list(holdings_files_map.keys())
+            code_to_label = {}
+            for opt_label, opt_info in INDEX_OPTIONS.items():
+                c_tmp = opt_info["ticker"].rsplit(".", 1)[0].upper()
+                if c_tmp in holdings_files_map:
+                    code_to_label[c_tmp] = opt_label
+            target_etf_code = st.selectbox(
+                "選擇 ETF 成分股清單",
+                avail_codes,
+                format_func=lambda c: code_to_label.get(c, c),
+                index=0,
+            )
+
+        if target_etf_code and target_etf_code in holdings_files_map:
+            file_meta = holdings_files_map[target_etf_code]
+            with st.spinner(f"正在載入 {target_etf_code} 最新成分股與即時股價..."):
+                df_hold = load_etf_holdings_table(file_meta["source_type"], file_meta["path_or_url"])
+
+                if df_hold.empty:
+                    st.error(f"無法解析 `{file_meta['filename']}` 的成分股內容，請確認 Excel 欄位格式。")
+                else:
+                    dir_lookup = tuple((item["code"], item["market"]) for item in tw_directory)
+                    code_tuple = tuple(df_hold["代碼"].tolist())
+                    quotes_map = fetch_constituents_realtime_quotes(code_tuple, dir_lookup)
+
+                    rows_display = []
+                    for _, r in df_hold.iterrows():
+                        c = r["代碼"]
+                        q = quotes_map.get(c, {})
+                        disp_name = r["名稱"] or q.get("name", "")
+                        rows_display.append(
+                            {
+                                "代碼": c,
+                                "名稱": disp_name,
+                                "即時股價": q.get("price"),
+                                "漲跌點": q.get("change"),
+                                "漲跌幅": q.get("change_pct"),
+                                "權重": r["權重"],
+                            }
+                        )
+
+                    df_show = pd.DataFrame(rows_display)
+                    total_w = float(df_show["權重"].dropna().sum())
+                    src_tag = "GitHub 倉庫" if file_meta["source_type"] == "github" else "etf_holdings/"
+
+                    st.caption(
+                        f"來源：**{src_tag}{file_meta['filename']}** ｜ "
+                        f"成分股：**{len(df_show)} 檔** ｜ "
+                        f"合計權重：**{total_w:.2f}%** ｜ "
+                        f"報價更新：{datetime.now(TZ_TAIPEI).strftime('%H:%M:%S')}"
+                    )
+
+                    fmt_holdings = {
+                        "即時股價": lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+                        "漲跌點": lambda v: f"{v:+,.2f}" if pd.notna(v) else "-",
+                        "漲跌幅": lambda v: f"{v:+.2f}%" if pd.notna(v) else "-",
+                        "權重": lambda v: f"{v:.2f}%" if pd.notna(v) else "-",
+                    }
+                    tbl_height = min(36 * len(df_show) + 42, 720)
+                    st.dataframe(
+                        df_show.style.map(
+                            _style_signed_val, subset=["漲跌點", "漲跌幅"]
+                        ).format(fmt_holdings),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=tbl_height,
+                    )
 
 if auto_refresh:
     time.sleep(refresh_sec)

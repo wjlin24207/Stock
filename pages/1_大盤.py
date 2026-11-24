@@ -5,7 +5,7 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas openpyxl
-    streamlit run taiex_intraday_app-v24.py
+    streamlit run taiex_intraday_app-v25.py
 """
 
 import io
@@ -466,83 +466,173 @@ def _parse_mis_best_price(raw_book: str) -> float | None:
     return None
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+def _parse_twse_signed_change(sign_raw, diff_raw) -> float | None:
+    """解析證交所 MI_INDEX 的 '漲跌(+/-)'（可能含 HTML 標籤如 <p style=color:red>+</p>）與 '漲跌價差'"""
+    diff_val = _to_float(diff_raw)
+    if diff_val is None:
+        return None
+    if diff_val == 0:
+        return 0.0
+    sign_clean = re.sub(r"<[^>]+>", "", str(sign_raw or "")).strip()
+    if "-" in sign_clean or "－" in sign_clean:
+        return -abs(diff_val)
+    return abs(diff_val)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_tw_market_daily_quotes() -> dict[str, dict]:
     """
-    從證交所 (TWSE STOCK_DAY_ALL) 與櫃買中心 (TPEx tpex_mainboard_quotes) 一次取得全台股最新收盤價與漲跌點，
-    作為盤後與備援的完整報價基準（確保任何時候都不會出現 None）。
+    從證交所官方盤後行情 (www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX, type=ALLBUT0999)
+    與櫃買中心官方行情 (www.tpex.org.tw/www/zh-tw/afterTrading/otcQuotes) 取得最近交易日全台股
+    （含上市股票、ETF、上櫃股票）收盤價與漲跌點，作為盤中開盤前與盤後/假日的穩定報價基準。
     """
     quotes: dict[str, dict] = {}
+    weekdays = _recent_weekday_dates(max_days=10)
 
-    # 1. 上市 (TWSE)
-    try:
-        resp = requests.get(
-            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-            headers=HTTP_HEADERS,
-            timeout=8,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        if isinstance(rows, list):
-            for row in rows:
-                c = str(row.get("Code", "")).strip().upper()
-                close_p = _to_float(row.get("ClosingPrice"))
-                if not c or close_p is None or close_p <= 0:
-                    continue
-                raw_chg = str(row.get("Change", "")).replace("X", "").replace("x", "").strip()
-                chg = _to_float(raw_chg)
-                if chg is not None:
-                    prev_p = close_p - chg
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    chg = round(chg, 2)
-                else:
-                    chg_pct = None
-                quotes[c] = {
-                    "price": round(close_p, 2),
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "name": str(row.get("Name", "")).strip(),
-                    "market": "上市",
-                }
-    except Exception:
-        pass
+    # 1. 上市 (TWSE MI_INDEX ALLBUT0999 — 與大盤維持率共用同一已驗證的 www.twse.com.tw 端點)
+    for d in weekdays:
+        date_str = d.strftime("%Y%m%d")
+        try:
+            resp = requests.get(
+                "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
+                params={"response": "json", "date": date_str, "type": "ALLBUT0999"},
+                headers=HTTP_HEADERS,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("stat") != "OK" or not data.get("tables"):
+                continue
 
-    # 2. 上櫃 (TPEx)
-    try:
-        resp = requests.get(
-            "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
-            headers=HTTP_HEADERS,
-            timeout=8,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        if isinstance(rows, list):
-            for row in rows:
-                c = str(
-                    row.get("SecuritiesCompanyCode") or row.get("公司代號") or ""
-                ).strip().upper()
-                if not c or c in quotes:
+            for tbl in data["tables"]:
+                fields = [str(f).strip() for f in tbl.get("fields", [])]
+                if "證券代號" in fields and "收盤價" in fields and tbl.get("data"):
+                    idx_code = fields.index("證券代號")
+                    idx_name = fields.index("證券名稱") if "證券名稱" in fields else None
+                    idx_close = fields.index("收盤價")
+                    idx_sign = next((i for i, f in enumerate(fields) if "漲跌" in f and ("+" in f or "-" in f)), None)
+                    idx_diff = fields.index("漲跌價差") if "漲跌價差" in fields else None
+                    idx_bid = fields.index("最後揭示買價") if "最後揭示買價" in fields else None
+                    idx_ask = fields.index("最後揭示賣價") if "最後揭示賣價" in fields else None
+
+                    for row in tbl["data"]:
+                        if len(row) <= max(idx_code, idx_close):
+                            continue
+                        c = str(row[idx_code]).strip().upper()
+                        if not c:
+                            continue
+                        close_p = _to_float(row[idx_close])
+                        if (close_p is None or close_p <= 0) and idx_bid is not None and idx_bid < len(row):
+                            close_p = _to_float(row[idx_bid])
+                        if (close_p is None or close_p <= 0) and idx_ask is not None and idx_ask < len(row):
+                            close_p = _to_float(row[idx_ask])
+                        if close_p is None or close_p <= 0:
+                            continue
+
+                        chg = None
+                        chg_pct = None
+                        if idx_diff is not None and idx_diff < len(row):
+                            sign_val = row[idx_sign] if (idx_sign is not None and idx_sign < len(row)) else ""
+                            chg = _parse_twse_signed_change(sign_val, row[idx_diff])
+                            if chg is not None:
+                                prev_p = close_p - chg
+                                chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                                chg = round(chg, 2)
+
+                        name_str = (
+                            str(row[idx_name]).strip()
+                            if (idx_name is not None and idx_name < len(row))
+                            else ""
+                        )
+                        quotes[c] = {
+                            "price": round(close_p, 2),
+                            "change": chg,
+                            "change_pct": chg_pct,
+                            "name": name_str,
+                            "market": "上市",
+                        }
+                    if quotes:
+                        break
+            if quotes:
+                break
+        except Exception:
+            continue
+
+    # 2. 上櫃 (TPEx — 與櫃買籌碼共用 www.tpex.org.tw/www/zh-tw/ 端點)
+    for d in weekdays:
+        west_date = d.strftime("%Y/%m/%d")
+        roc_date = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+        tpex_candidates = [
+            (
+                "https://www.tpex.org.tw/www/zh-tw/afterTrading/otcQuotes",
+                {"type": "Daily", "sect": "EW", "date": west_date, "response": "json"},
+            ),
+            (
+                "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
+                {"l": "zh-tw", "o": "json", "se": "EW", "d": roc_date},
+            ),
+        ]
+        found_otc = False
+        for url, params in tpex_candidates:
+            try:
+                resp = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                rows = None
+                fields = []
+                if isinstance(data.get("tables"), list) and data["tables"]:
+                    rows = data["tables"][0].get("data")
+                    fields = [str(f).strip() for f in data["tables"][0].get("fields", [])]
+                elif data.get("aaData"):
+                    rows = data["aaData"]
+                if not rows:
                     continue
-                close_p = _to_float(row.get("Close") or row.get("收盤"))
-                if close_p is None or close_p <= 0:
-                    continue
-                raw_chg = str(row.get("Change") or row.get("漲跌") or "").replace("X", "").replace("x", "").strip()
-                chg = _to_float(raw_chg)
-                if chg is not None:
-                    prev_p = close_p - chg
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    chg = round(chg, 2)
-                else:
-                    chg_pct = None
-                quotes[c] = {
-                    "price": round(close_p, 2),
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "name": str(row.get("CompanyName") or row.get("公司簡稱") or "").strip(),
-                    "market": "上櫃",
-                }
-    except Exception:
-        pass
+
+                idx_code = 0
+                idx_name = 1
+                idx_close = 2
+                idx_chg = 3
+                if fields:
+                    for i, f in enumerate(fields):
+                        if "代號" in f:
+                            idx_code = i
+                        elif "名稱" in f:
+                            idx_name = i
+                        elif "收盤" in f:
+                            idx_close = i
+                        elif "漲跌" in f:
+                            idx_chg = i
+
+                for row in rows:
+                    if len(row) <= max(idx_code, idx_close):
+                        continue
+                    c = str(row[idx_code]).strip().upper()
+                    if not c or c in quotes:
+                        continue
+                    close_p = _to_float(row[idx_close])
+                    if close_p is None or close_p <= 0:
+                        continue
+                    chg = _to_float(row[idx_chg]) if idx_chg < len(row) else None
+                    if chg is not None:
+                        prev_p = close_p - chg
+                        chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                        chg = round(chg, 2)
+                    else:
+                        chg_pct = None
+                    quotes[c] = {
+                        "price": round(close_p, 2),
+                        "change": chg,
+                        "change_pct": chg_pct,
+                        "name": str(row[idx_name]).strip() if idx_name < len(row) else "",
+                        "market": "上櫃",
+                    }
+                    found_otc = True
+                if found_otc:
+                    break
+            except Exception:
+                continue
+        if found_otc:
+            break
 
     return quotes
 
@@ -551,9 +641,9 @@ def fetch_tw_market_daily_quotes() -> dict[str, dict]:
 def fetch_constituents_realtime_quotes(codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]) -> dict[str, dict]:
     """
     批量抓取成分股即時股價、漲跌點、漲跌幅：
-      1. 先載入證交所/櫃買中心全市場最新官方報價作為保底基準（盤後、假日或網路波動時仍完整顯示）。
+      1. 先從證交所/櫃買中心官方最近交易日全市場行情載入收盤基準（盤後/假日不空窗）。
       2. 再向證交所/櫃買中心盤中即時系統 (mis.twse.com.tw) 批量查詢最新盤中成交價覆蓋更新。
-      3. 若仍有未涵蓋的海外股票或特殊代碼，以 yfinance 逐一補齊。
+      3. 若仍有未涵蓋的海外股票或特殊代碼，以 yfinance 批量補齊。
     """
     if not codes:
         return {}
@@ -572,7 +662,7 @@ def fetch_constituents_realtime_quotes(codes: tuple[str, ...], market_hints: tup
         else:
             foreign_codes.append(c)
 
-    # 2. 證交所 / 櫃買中心盤中即時 API 覆蓋最新盤中報價（避免 %7C 編碼並僅查詢已知合法頻道）
+    # 2. 證交所 / 櫃買中心盤中即時 API 覆蓋最新盤中報價
     if tw_codes:
         channels = []
         for c in tw_codes:
@@ -623,31 +713,50 @@ def fetch_constituents_realtime_quotes(codes: tuple[str, ...], market_hints: tup
         except Exception:
             pass
 
-    # 3. 針對仍缺報價的台股或海外成分股，使用 yfinance 補齊
+    # 3. 針對仍缺報價的台股或海外成分股，以 yfinance 批量下載補齊
     missing_codes = [c for c in codes if c not in quotes]
-    for orig_code in missing_codes:
-        if orig_code in tw_codes:
-            suffix = ".TWO" if hint_map.get(orig_code) == "上櫃" else ".TW"
-            yf_sym = f"{orig_code}{suffix}"
-        else:
-            yf_sym = orig_code
+    if missing_codes:
+        yf_map = {}
+        for orig_code in missing_codes:
+            if orig_code in tw_codes:
+                suffix = ".TWO" if hint_map.get(orig_code) == "上櫃" else ".TW"
+                yf_map[f"{orig_code}{suffix}"] = orig_code
+            else:
+                yf_map[orig_code] = orig_code
         try:
-            hist = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=False)
-            if hist is not None and not hist.empty and "Close" in hist.columns:
-                sub = hist["Close"].dropna()
-                if len(sub) >= 1:
-                    curr_p = float(sub.iloc[-1])
-                    prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
-                    chg = round(curr_p - prev_p, 2)
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    quotes[orig_code] = {
-                        "price": round(curr_p, 2),
-                        "change": chg,
-                        "change_pct": chg_pct,
-                        "name": "",
-                    }
+            hist = yf.download(
+                tickers=list(yf_map.keys()),
+                period="5d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+            if hist is not None and not hist.empty:
+                for yf_sym, orig_code in yf_map.items():
+                    try:
+                        if isinstance(hist.columns, pd.MultiIndex):
+                            if yf_sym not in hist.columns.get_level_values(0):
+                                continue
+                            sub = hist[yf_sym]["Close"].dropna()
+                        else:
+                            sub = hist["Close"].dropna()
+                        if len(sub) >= 1:
+                            curr_p = float(sub.iloc[-1])
+                            prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
+                            chg = round(curr_p - prev_p, 2)
+                            chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                            quotes[orig_code] = {
+                                "price": round(curr_p, 2),
+                                "change": chg,
+                                "change_pct": chg_pct,
+                                "name": "",
+                            }
+                    except Exception:
+                        continue
         except Exception:
-            continue
+            pass
 
     return quotes
 
@@ -2570,6 +2679,8 @@ with tab_holdings:
                         )
 
                     df_show = pd.DataFrame(rows_display)
+                    for num_col in ("即時股價", "漲跌點", "漲跌幅", "權重"):
+                        df_show[num_col] = pd.to_numeric(df_show[num_col], errors="coerce")
                     total_w = float(df_show["權重"].dropna().sum())
                     src_tag = "GitHub 倉庫" if file_meta["source_type"] == "github" else "etf_holdings/"
 

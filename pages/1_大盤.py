@@ -5,7 +5,7 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas openpyxl
-    streamlit run taiex_intraday_app-v27.py
+    streamlit run taiex_intraday_app-v29.py
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -423,10 +423,12 @@ def load_etf_holdings_table(source_type: str, path_or_url: str) -> pd.DataFrame:
         if code.endswith(".0"):
             code = code[:-2]
         code = code.upper()
-        for sfx in (".TWO", ".TW", " TT"):
+        for sfx in (".TWO", ".TW", " TT", " TW"):
             if code.endswith(sfx):
                 code = code[: -len(sfx)].strip()
                 break
+        if re.fullmatch(r"TW\d{4,6}[A-Z]?", code):
+            code = code[2:]
         if not code or code in ("NAN", "NONE", "-") or any(w in code for w in skip_words):
             continue
 
@@ -483,254 +485,328 @@ def _parse_twse_signed_change(sign_raw, diff_raw) -> float | None:
     return abs(diff_val)
 
 
-def _fetch_tw_market_daily_quotes_uncached() -> dict[str, dict]:
+def _fetch_tw_market_daily_quotes_uncached() -> tuple[dict[str, dict], list[str]]:
     """
-    取得全台股（上市 + 上櫃）最新交易日收盤價與漲跌點：
-      1. 優先使用證交所/櫃買 OpenAPI (verify=False 避開 Linux 機房中繼憑證鏈缺漏問題)。
-      2. 若 OpenAPI 無資料，自動改抓證交所 RWD MI_INDEX (ALLBUT0999) 與櫃買中心行情表。
+    取得全台股（上市 + 上櫃）最新交易日收盤價與漲跌點，並回傳診斷訊息：
+      1. 證交所 RWD MI_INDEX (type=ALLBUT0999)
+      2. 櫃買中心 RWD otcQuotes
+      3. 證交所/櫃買 OpenAPI 備援
     """
     quotes: dict[str, dict] = {}
+    diag_notes: list[str] = []
+    weekdays = _recent_weekday_dates(max_days=10)
 
-    # 1A. 上市 OpenAPI (STOCK_DAY_ALL)
-    try:
-        resp = requests.get(
-            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-            headers=HTTP_HEADERS,
-            timeout=10,
-            verify=False,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        if isinstance(rows, list):
-            for row in rows:
-                c = str(row.get("Code", "")).strip().upper()
-                close_p = _to_float(row.get("ClosingPrice"))
-                if not c or close_p is None or close_p <= 0:
-                    continue
-                raw_chg = str(row.get("Change", "")).replace("X", "").replace("x", "").strip()
-                chg = _to_float(raw_chg)
-                if chg is not None:
-                    prev_p = close_p - chg
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    chg = round(chg, 2)
-                else:
-                    chg_pct = None
-                quotes[c] = {
-                    "price": round(close_p, 2),
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "name": str(row.get("Name", "")).strip(),
-                    "market": "上市",
-                }
-    except Exception:
-        pass
+    session = requests.Session()
+    session.headers.update(HTTP_HEADERS)
 
-    # 1B. 上櫃 OpenAPI (tpex_mainboard_quotes)
-    try:
-        resp = requests.get(
-            "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
-            headers=HTTP_HEADERS,
-            timeout=10,
-            verify=False,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        if isinstance(rows, list):
-            for row in rows:
-                c = str(
-                    row.get("SecuritiesCompanyCode") or row.get("公司代號") or ""
-                ).strip().upper()
-                if not c or c in quotes:
-                    continue
-                close_p = _to_float(row.get("Close") or row.get("收盤"))
-                if close_p is None or close_p <= 0:
-                    continue
-                raw_chg = str(row.get("Change") or row.get("漲跌") or "").replace("X", "").replace("x", "").strip()
-                chg = _to_float(raw_chg)
-                if chg is not None:
-                    prev_p = close_p - chg
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    chg = round(chg, 2)
-                else:
-                    chg_pct = None
-                quotes[c] = {
-                    "price": round(close_p, 2),
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "name": str(row.get("CompanyName") or row.get("公司簡稱") or "").strip(),
-                    "market": "上櫃",
-                }
-    except Exception:
-        pass
+    # 1. 上市 (TWSE RWD MI_INDEX ALLBUT0999)
+    twse_err = ""
+    for d in weekdays[:5]:
+        date_str = d.strftime("%Y%m%d")
+        try:
+            resp = session.get(
+                "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
+                params={"response": "json", "date": date_str, "type": "ALLBUT0999"},
+                timeout=10,
+                verify=False,
+            )
+            if resp.status_code != 200:
+                twse_err = f"TWSE HTTP {resp.status_code}"
+                continue
+            data = resp.json()
+            if data.get("stat") != "OK" or not data.get("tables"):
+                twse_err = f"TWSE stat={data.get('stat', 'N/A')}"
+                continue
 
-    # 2. 若 OpenAPI 未抓到，備援改抓證交所 RWD MI_INDEX
-    if not quotes:
-        weekdays = _recent_weekday_dates(max_days=10)
-        for d in weekdays:
-            date_str = d.strftime("%Y%m%d")
+            for tbl in data["tables"]:
+                fields = [str(f).strip() for f in tbl.get("fields", [])]
+                if "證券代號" in fields and "收盤價" in fields and tbl.get("data"):
+                    idx_code = fields.index("證券代號")
+                    idx_name = fields.index("證券名稱") if "證券名稱" in fields else None
+                    idx_close = fields.index("收盤價")
+                    idx_sign = next((i for i, f in enumerate(fields) if "漲跌" in f and ("+" in f or "-" in f)), None)
+                    idx_diff = fields.index("漲跌價差") if "漲跌價差" in fields else None
+                    idx_bid = fields.index("最後揭示買價") if "最後揭示買價" in fields else None
+                    idx_ask = fields.index("最後揭示賣價") if "最後揭示賣價" in fields else None
+
+                    for row in tbl["data"]:
+                        if len(row) <= max(idx_code, idx_close):
+                            continue
+                        c = str(row[idx_code]).strip().upper()
+                        if not c:
+                            continue
+                        close_p = _to_float(row[idx_close])
+                        if (close_p is None or close_p <= 0) and idx_bid is not None and idx_bid < len(row):
+                            close_p = _to_float(row[idx_bid])
+                        if (close_p is None or close_p <= 0) and idx_ask is not None and idx_ask < len(row):
+                            close_p = _to_float(row[idx_ask])
+                        if close_p is None or close_p <= 0:
+                            continue
+
+                        chg = None
+                        chg_pct = None
+                        if idx_diff is not None and idx_diff < len(row):
+                            sign_val = row[idx_sign] if (idx_sign is not None and idx_sign < len(row)) else ""
+                            chg = _parse_twse_signed_change(sign_val, row[idx_diff])
+                            if chg is not None:
+                                prev_p = close_p - chg
+                                chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                                chg = round(chg, 2)
+
+                        name_str = (
+                            str(row[idx_name]).strip()
+                            if (idx_name is not None and idx_name < len(row))
+                            else ""
+                        )
+                        quotes[c] = {
+                            "price": round(close_p, 2),
+                            "change": chg,
+                            "change_pct": chg_pct,
+                            "name": name_str,
+                            "market": "上市",
+                        }
+                    if quotes:
+                        break
+            if quotes:
+                break
+        except Exception as e:
+            twse_err = f"TWSE {type(e).__name__}"
+            continue
+
+    if not quotes and twse_err:
+        diag_notes.append(twse_err)
+
+    # 2. 上櫃 (TPEx RWD otcQuotes)
+    tpex_got = False
+    for d in weekdays[:5]:
+        west_date = d.strftime("%Y/%m/%d")
+        roc_date = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+        tpex_candidates = [
+            (
+                "https://www.tpex.org.tw/www/zh-tw/afterTrading/otcQuotes",
+                {"type": "Daily", "sect": "EW", "date": west_date, "response": "json"},
+            ),
+            (
+                "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php",
+                {"l": "zh-tw", "o": "json", "se": "EW", "d": roc_date},
+            ),
+        ]
+        for url, params in tpex_candidates:
             try:
-                resp = requests.get(
-                    "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
-                    params={"response": "json", "date": date_str, "type": "ALLBUT0999"},
-                    headers=HTTP_HEADERS,
-                    timeout=15,
-                    verify=False,
-                )
-                resp.raise_for_status()
+                resp = session.get(url, params=params, timeout=8, verify=False)
+                if resp.status_code != 200:
+                    continue
                 data = resp.json()
-                if data.get("stat") != "OK" or not data.get("tables"):
+                rows = None
+                fields = []
+                if isinstance(data.get("tables"), list) and data["tables"]:
+                    rows = data["tables"][0].get("data")
+                    fields = [str(f).strip() for f in data["tables"][0].get("fields", [])]
+                elif data.get("aaData"):
+                    rows = data["aaData"]
+                if not rows:
                     continue
 
-                for tbl in data["tables"]:
-                    fields = [str(f).strip() for f in tbl.get("fields", [])]
-                    if "證券代號" in fields and "收盤價" in fields and tbl.get("data"):
-                        idx_code = fields.index("證券代號")
-                        idx_name = fields.index("證券名稱") if "證券名稱" in fields else None
-                        idx_close = fields.index("收盤價")
-                        idx_sign = next((i for i, f in enumerate(fields) if "漲跌" in f and ("+" in f or "-" in f)), None)
-                        idx_diff = fields.index("漲跌價差") if "漲跌價差" in fields else None
-                        idx_bid = fields.index("最後揭示買價") if "最後揭示買價" in fields else None
-                        idx_ask = fields.index("最後揭示賣價") if "最後揭示賣價" in fields else None
+                idx_code, idx_name, idx_close, idx_chg = 0, 1, 2, 3
+                if fields:
+                    for i, f in enumerate(fields):
+                        if "代號" in f:
+                            idx_code = i
+                        elif "名稱" in f:
+                            idx_name = i
+                        elif "收盤" in f:
+                            idx_close = i
+                        elif "漲跌" in f:
+                            idx_chg = i
 
-                        for row in tbl["data"]:
-                            if len(row) <= max(idx_code, idx_close):
-                                continue
-                            c = str(row[idx_code]).strip().upper()
-                            if not c:
-                                continue
-                            close_p = _to_float(row[idx_close])
-                            if (close_p is None or close_p <= 0) and idx_bid is not None and idx_bid < len(row):
-                                close_p = _to_float(row[idx_bid])
-                            if (close_p is None or close_p <= 0) and idx_ask is not None and idx_ask < len(row):
-                                close_p = _to_float(row[idx_ask])
-                            if close_p is None or close_p <= 0:
-                                continue
-
-                            chg = None
-                            chg_pct = None
-                            if idx_diff is not None and idx_diff < len(row):
-                                sign_val = row[idx_sign] if (idx_sign is not None and idx_sign < len(row)) else ""
-                                chg = _parse_twse_signed_change(sign_val, row[idx_diff])
-                                if chg is not None:
-                                    prev_p = close_p - chg
-                                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                                    chg = round(chg, 2)
-
-                            name_str = (
-                                str(row[idx_name]).strip()
-                                if (idx_name is not None and idx_name < len(row))
-                                else ""
-                            )
-                            quotes[c] = {
-                                "price": round(close_p, 2),
-                                "change": chg,
-                                "change_pct": chg_pct,
-                                "name": name_str,
-                                "market": "上市",
-                            }
-                        if quotes:
-                            break
-                if quotes:
+                for row in rows:
+                    if len(row) <= max(idx_code, idx_close):
+                        continue
+                    c = str(row[idx_code]).strip().upper()
+                    if not c or c in quotes:
+                        continue
+                    close_p = _to_float(row[idx_close])
+                    if close_p is None or close_p <= 0:
+                        continue
+                    chg = _to_float(row[idx_chg]) if idx_chg < len(row) else None
+                    if chg is not None:
+                        prev_p = close_p - chg
+                        chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                        chg = round(chg, 2)
+                    else:
+                        chg_pct = None
+                    quotes[c] = {
+                        "price": round(close_p, 2),
+                        "change": chg,
+                        "change_pct": chg_pct,
+                        "name": str(row[idx_name]).strip() if idx_name < len(row) else "",
+                        "market": "上櫃",
+                    }
+                    tpex_got = True
+                if tpex_got:
                     break
             except Exception:
                 continue
+        if tpex_got:
+            break
 
-    return quotes
+    # 3. OpenAPI 備援（僅在 RWD 未取得時嘗試）
+    if not quotes:
+        try:
+            resp = session.get(
+                "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+                timeout=6,
+                verify=False,
+            )
+            if resp.status_code == 200 and isinstance(resp.json(), list):
+                for row in resp.json():
+                    c = str(row.get("Code", "")).strip().upper()
+                    close_p = _to_float(row.get("ClosingPrice"))
+                    if not c or close_p is None or close_p <= 0:
+                        continue
+                    raw_chg = str(row.get("Change", "")).replace("X", "").replace("x", "").strip()
+                    chg = _to_float(raw_chg)
+                    prev_p = (close_p - chg) if chg is not None else None
+                    chg_pct = round((chg / prev_p) * 100.0, 2) if (chg is not None and prev_p and prev_p > 0) else None
+                    quotes[c] = {
+                        "price": round(close_p, 2),
+                        "change": round(chg, 2) if chg is not None else None,
+                        "change_pct": chg_pct,
+                        "name": str(row.get("Name", "")).strip(),
+                        "market": "上市",
+                    }
+        except Exception:
+            pass
+
+    return quotes, diag_notes
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_tw_market_daily_quotes() -> dict[str, dict]:
+def _cached_tw_market_daily_quotes() -> tuple[dict[str, dict], list[str]]:
     return _fetch_tw_market_daily_quotes_uncached()
 
 
-def fetch_tw_market_daily_quotes() -> dict[str, dict]:
-    """避免將空字典快取住；若快取為空則自動重新抓取一次"""
-    res = _cached_tw_market_daily_quotes()
+def fetch_tw_market_daily_quotes() -> tuple[dict[str, dict], list[str]]:
+    res, notes = _cached_tw_market_daily_quotes()
     if not res:
         _cached_tw_market_daily_quotes.clear()
-        res = _cached_tw_market_daily_quotes()
-    return res
+        res, notes = _cached_tw_market_daily_quotes()
+    return res, notes
 
 
-def _fetch_single_yf_quote(orig_code: str, is_tw: bool, market_hint: str) -> tuple[str, dict | None]:
+def _fetch_single_yf_quote(orig_code: str, is_tw: bool, market_hint: str) -> tuple[str, dict | None, str]:
     """
-    使用單檔 yf.Ticker(sym).history(period="5d", interval="1d") 抓取最新收盤/盤中價與漲跌點，
-    徹底避開新版 yfinance 多層 MultiIndex 欄位結構差異；台股若 .TW 無資料會自動改試 .TWO。
+    先透過 yfinance 抓取單檔日線，若失敗則直接請求 Yahoo Finance v8 chart API 備援，
+    回傳 (orig_code, quote_dict_or_None, err_msg)。
     """
     if is_tw:
         candidates = [f"{orig_code}.TWO", f"{orig_code}.TW"] if market_hint == "上櫃" else [f"{orig_code}.TW", f"{orig_code}.TWO"]
     else:
         candidates = [orig_code]
 
+    last_err = ""
     for sym in candidates:
+        # 方法 A: yf.Ticker().history()
         try:
             hist = yf.Ticker(sym).history(period="5d", interval="1d", auto_adjust=False)
             if hist is not None and not hist.empty and "Close" in hist.columns:
                 sub = hist["Close"].dropna()
                 if len(sub) >= 1:
                     curr_p = float(sub.iloc[-1])
-                    if curr_p <= 0:
-                        continue
-                    prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
-                    chg = round(curr_p - prev_p, 2)
-                    chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    return orig_code, {
-                        "price": round(curr_p, 2),
-                        "change": chg,
-                        "change_pct": chg_pct,
-                        "name": "",
-                    }
-        except Exception:
-            continue
+                    if curr_p > 0:
+                        prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
+                        chg = round(curr_p - prev_p, 2)
+                        chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
+                        return orig_code, {
+                            "price": round(curr_p, 2),
+                            "change": chg,
+                            "change_pct": chg_pct,
+                            "name": "",
+                        }, ""
+        except Exception as e:
+            last_err = f"YF {type(e).__name__}"
 
-    return orig_code, None
-
-
-def _fetch_yf_parallel_quotes(
-    missing_codes: list[str], tw_set: set[str], hint_map: dict[str, str]
-) -> dict[str, dict]:
-    """以執行緒池平行呼叫 yf.Ticker().history()，50 檔成分股約 1~2 秒內完成"""
-    out: dict[str, dict] = {}
-    if not missing_codes:
-        return out
-
-    max_workers = min(12, len(missing_codes))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(
-                _fetch_single_yf_quote,
-                c,
-                c in tw_set,
-                hint_map.get(c, ""),
+        # 方法 B: 直接請求 Yahoo Finance v8 chart JSON
+        try:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}",
+                params={"range": "5d", "interval": "1d"},
+                headers={"User-Agent": HTTP_HEADERS["User-Agent"], "Accept": "application/json"},
+                timeout=8,
             )
-            for c in missing_codes
-        ]
+            if r.status_code == 200:
+                res_list = (r.json().get("chart") or {}).get("result") or []
+                if res_list:
+                    meta = res_list[0].get("meta") or {}
+                    closes = (((res_list[0].get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+                    valid_closes = [float(x) for x in closes if x is not None and float(x) > 0]
+                    curr_p = _to_float(meta.get("regularMarketPrice")) or (valid_closes[-1] if valid_closes else None)
+                    prev_p = _to_float(meta.get("chartPreviousClose") or meta.get("previousClose"))
+                    if prev_p is None and len(valid_closes) >= 2:
+                        prev_p = valid_closes[-2]
+                    if curr_p is not None and curr_p > 0:
+                        if prev_p is not None and prev_p > 0:
+                            chg = round(curr_p - prev_p, 2)
+                            chg_pct = round((chg / prev_p) * 100.0, 2)
+                        else:
+                            chg, chg_pct = 0.0, 0.0
+                        return orig_code, {
+                            "price": round(curr_p, 2),
+                            "change": chg,
+                            "change_pct": chg_pct,
+                            "name": "",
+                        }, ""
+            else:
+                last_err = f"YF HTTP {r.status_code}"
+        except Exception as e:
+            last_err = f"YF {type(e).__name__}"
+
+    return orig_code, None, last_err
+
+
+def _fetch_yf_paced_quotes(
+    missing_codes: list[str], tw_set: set[str], hint_map: dict[str, str]
+) -> tuple[dict[str, dict], str]:
+    """
+    低併發節流抓取（max_workers=3 + 間隔 0.15s），避免在 Streamlit Cloud 共用 IP 上觸發 Yahoo 429 限流。
+    """
+    out: dict[str, dict] = {}
+    sample_err = ""
+    if not missing_codes:
+        return out, sample_err
+
+    def _worker(c: str):
+        time.sleep(0.15)
+        return _fetch_single_yf_quote(c, c in tw_set, hint_map.get(c, ""))
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(_worker, c) for c in missing_codes]
         for fut in as_completed(futures):
             try:
-                orig_code, res = fut.result()
+                orig_code, res, err = fut.result()
                 if res is not None:
                     out[orig_code] = res
-            except Exception:
-                continue
+                elif err and not sample_err:
+                    sample_err = err
+            except Exception as e:
+                if not sample_err:
+                    sample_err = type(e).__name__
 
-    return out
+    return out, sample_err
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _cached_constituents_quotes(
     codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]
-) -> tuple[dict[str, dict], list[str]]:
+) -> tuple[dict[str, dict], list[str], list[str]]:
     """
-    三層備援批量抓取成分股即時股價、漲跌點、漲跌幅：
-      1. 證交所/櫃買中心全市場最新官方報價基準。
-      2. 證交所/櫃買中心盤中即時系統 (mis.twse.com.tw) 批量覆蓋最新盤中成交價。
-      3. 平行 yfinance 單檔歷史報價補齊（確保雲端機房即使被台股官網擋 IP 也能 100% 取得報價）。
+    三層備援批量抓取成分股即時股價、漲跌點、漲跌幅，並回傳來源與診斷資訊。
     """
     if not codes:
-        return {}, []
+        return {}, [], []
 
     hint_map = dict(market_hints)
-    daily_base = fetch_tw_market_daily_quotes()
+    daily_base, diag_notes = fetch_tw_market_daily_quotes()
     quotes: dict[str, dict] = {}
     sources_used: list[str] = []
     tw_codes = []
@@ -794,32 +870,34 @@ def _cached_constituents_quotes(
                             "name": str(item.get("n", "")).strip() or (quotes.get(c) or {}).get("name", ""),
                         }
                         got_intraday = True
-        except Exception:
-            pass
+        except Exception as e:
+            if not quotes:
+                diag_notes.append(f"MIS {type(e).__name__}")
 
         if got_intraday:
             sources_used.append("盤中即時報價")
 
-    # 3. 針對仍缺報價的台股或海外成分股，以平行 yfinance 補齊
+    # 3. 針對仍缺報價的台股或海外成分股，以低併發節流 Yahoo Finance 補齊
     missing_codes = [c for c in codes if c not in quotes]
     if missing_codes:
-        yf_quotes = _fetch_yf_parallel_quotes(missing_codes, set(tw_codes), hint_map)
+        yf_quotes, yf_err = _fetch_yf_paced_quotes(missing_codes, set(tw_codes), hint_map)
         if yf_quotes:
             quotes.update(yf_quotes)
             sources_used.append("Yahoo Finance")
+        elif yf_err:
+            diag_notes.append(yf_err)
 
-    return quotes, sources_used
+    return quotes, sources_used, diag_notes
 
 
 def fetch_constituents_realtime_quotes(
     codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]
-) -> tuple[dict[str, dict], list[str]]:
-    """避免快取住完全空白的結果；若回傳為空則自動清快取重抓一次"""
-    q_map, srcs = _cached_constituents_quotes(codes, market_hints)
+) -> tuple[dict[str, dict], list[str], list[str]]:
+    q_map, srcs, notes = _cached_constituents_quotes(codes, market_hints)
     if not q_map and codes:
         _cached_constituents_quotes.clear()
-        q_map, srcs = _cached_constituents_quotes(codes, market_hints)
-    return q_map, srcs
+        q_map, srcs, notes = _cached_constituents_quotes(codes, market_hints)
+    return q_map, srcs, notes
 
 
 # ==========================================
@@ -839,7 +917,7 @@ def load_tw_stock_directory() -> list[dict]:
     ]
     for url in twse_urls:
         try:
-            resp = requests.get(url, headers=HTTP_HEADERS, timeout=6)
+            resp = requests.get(url, headers=HTTP_HEADERS, timeout=6, verify=False)
             resp.raise_for_status()
             rows = resp.json()
             if isinstance(rows, list) and rows:
@@ -864,7 +942,7 @@ def load_tw_stock_directory() -> list[dict]:
     ]
     for url in tpex_urls:
         try:
-            resp = requests.get(url, headers=HTTP_HEADERS, timeout=6)
+            resp = requests.get(url, headers=HTTP_HEADERS, timeout=6, verify=False)
             resp.raise_for_status()
             rows = resp.json()
             if isinstance(rows, list) and rows:
@@ -2713,15 +2791,28 @@ with tab_holdings:
 
         if target_etf_code and target_etf_code in holdings_files_map:
             file_meta = holdings_files_map[target_etf_code]
-            with st.spinner(f"正在載入 {target_etf_code} 最新成分股與即時股價..."):
-                df_hold = load_etf_holdings_table(file_meta["source_type"], file_meta["path_or_url"])
+            df_hold_all = load_etf_holdings_table(file_meta["source_type"], file_meta["path_or_url"])
 
-                if df_hold.empty:
-                    st.error(f"無法解析 `{file_meta['filename']}` 的成分股內容，請確認 Excel 欄位格式。")
+            if df_hold_all.empty:
+                st.error(f"無法解析 `{file_meta['filename']}` 的成分股內容，請確認 Excel 欄位格式。")
+            else:
+                total_holdings_cnt = len(df_hold_all)
+                top_n = 15
+                if total_holdings_cnt > top_n:
+                    show_all_holdings = st.checkbox(
+                        f"顯示全部 {total_holdings_cnt} 檔成分股（預設僅抓取權重前 {top_n} 檔以加快載入）",
+                        value=False,
+                        key=f"show_all_holdings_{target_etf_code}",
+                    )
                 else:
+                    show_all_holdings = True
+
+                df_hold = df_hold_all if show_all_holdings else df_hold_all.head(top_n).copy()
+
+                with st.spinner(f"正在載入 {target_etf_code} 前 {len(df_hold)} 檔成分股即時股價..."):
                     dir_lookup = tuple((item["code"], item["market"]) for item in tw_directory)
                     code_tuple = tuple(df_hold["代碼"].tolist())
-                    quotes_map, quote_sources = fetch_constituents_realtime_quotes(code_tuple, dir_lookup)
+                    quotes_map, quote_sources, quote_notes = fetch_constituents_realtime_quotes(code_tuple, dir_lookup)
 
                     rows_display = []
                     for _, r in df_hold.iterrows():
@@ -2744,14 +2835,26 @@ with tab_holdings:
                         df_show[num_col] = pd.to_numeric(df_show[num_col], errors="coerce")
 
                     matched_cnt = int(df_show["即時股價"].notna().sum())
-                    total_w = float(df_show["權重"].dropna().sum())
+                    shown_w = float(df_show["權重"].dropna().sum())
+                    all_w = float(df_hold_all["權重"].dropna().sum())
                     src_tag = "GitHub 倉庫" if file_meta["source_type"] == "github" else "etf_holdings/"
                     q_src_str = " + ".join(quote_sources) if quote_sources else "無報價回應"
 
+                    scope_label = (
+                        f"全部 **{total_holdings_cnt}** 檔"
+                        if show_all_holdings
+                        else f"前 **{len(df_show)}** 檔（共 {total_holdings_cnt} 檔）"
+                    )
+                    weight_label = (
+                        f"合計權重：**{shown_w:.2f}%**"
+                        if show_all_holdings
+                        else f"前 {len(df_show)} 檔權重：**{shown_w:.2f}%** / 總權重 {all_w:.2f}%"
+                    )
+                    note_suffix = f"（診斷：{', '.join(quote_notes)}）" if (matched_cnt == 0 and quote_notes) else ""
                     st.caption(
                         f"來源：**{src_tag}{file_meta['filename']}** ｜ "
-                        f"成分股：**{len(df_show)} 檔**（已取得報價 **{matched_cnt}/{len(df_show)}** 檔｜{q_src_str}） ｜ "
-                        f"合計權重：**{total_w:.2f}%** ｜ "
+                        f"顯示：{scope_label}（已取得報價 **{matched_cnt}/{len(df_show)}** 檔｜{q_src_str}{note_suffix}） ｜ "
+                        f"{weight_label} ｜ "
                         f"更新：{datetime.now(TZ_TAIPEI).strftime('%H:%M:%S')}"
                     )
 

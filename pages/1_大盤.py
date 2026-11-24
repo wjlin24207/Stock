@@ -5,7 +5,7 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/4_當日大盤走勢.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v20.py
+    streamlit run taiex_intraday_app-v22.py
 """
 
 import re
@@ -1411,6 +1411,46 @@ def build_intraday_chart(
     y_pad = max((y_max - y_min) * 0.12, prev_close * 0.001)
     fig.update_yaxes(range=[y_min - y_pad, y_max + y_pad], tickformat=",.2f", row=1, col=1)
 
+    # 固定當日交易時段 X 軸範圍（台股固定 09:00 ~ 13:30，美股固定 09:30 ~ 16:00）
+    tz_obj = df.index.tz
+    tz_str = str(tz_obj) if tz_obj is not None else ""
+    day_str = df.index[0].strftime("%Y-%m-%d")
+    custom_tickvals = None
+    custom_ticktext = None
+
+    if "Taipei" in tz_str:
+        session_start = pd.Timestamp(f"{day_str} 09:00:00", tz=tz_obj)
+        session_end = pd.Timestamp(f"{day_str} 13:30:00", tz=tz_obj)
+        x_min = min(session_start, df.index.min())
+        x_max = max(session_end, df.index.max())
+        tick_labels = ["09:00", "10:00", "11:00", "12:00", "13:30"]
+        custom_tickvals = [pd.Timestamp(f"{day_str} {t}:00", tz=tz_obj) for t in tick_labels]
+        custom_ticktext = tick_labels
+    elif "New_York" in tz_str:
+        session_start = pd.Timestamp(f"{day_str} 09:30:00", tz=tz_obj)
+        session_end = pd.Timestamp(f"{day_str} 16:00:00", tz=tz_obj)
+        x_min = min(session_start, df.index.min())
+        x_max = max(session_end, df.index.max())
+    else:
+        x_min = df.index.min()
+        x_max = df.index.max()
+
+    xaxis_style = dict(
+        range=[x_min, x_max],
+        tickformat="%H:%M",
+        tickangle=0,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikedash="dash",
+        spikecolor="#90A4AE",
+    )
+    if custom_tickvals is not None and custom_ticktext is not None:
+        xaxis_style["tickmode"] = "array"
+        xaxis_style["tickvals"] = custom_tickvals
+        xaxis_style["ticktext"] = custom_ticktext
+
     if has_volume:
         prev_close_series = df["Close"].shift(1).fillna(prev_close)
         vol_colors = [
@@ -1449,34 +1489,12 @@ def build_intraday_chart(
         fig.update_yaxes(title_text=vol_yaxis_title, tickformat=vol_tickformat, row=2, col=1)
 
         fig.update_traces(xaxis="x2")
-        fig.update_layout(xaxis=dict(visible=False))
-        fig.update_xaxes(
-            range=[df.index.min(), df.index.max()],
-            tickformat="%H:%M",
-            showspikes=True,
-            spikemode="across",
-            spikesnap="cursor",
-            spikethickness=1,
-            spikedash="dash",
-            spikecolor="#90A4AE",
-            row=2,
-            col=1,
-        )
+        fig.update_layout(xaxis=dict(visible=False, range=[x_min, x_max]))
+        fig.update_xaxes(**xaxis_style, row=2, col=1)
     else:
-        fig.update_xaxes(
-            range=[df.index.min(), df.index.max()],
-            tickformat="%H:%M",
-            showspikes=True,
-            spikemode="across",
-            spikesnap="cursor",
-            spikethickness=1,
-            spikedash="dash",
-            spikecolor="#90A4AE",
-            row=1,
-            col=1,
-        )
+        fig.update_xaxes(**xaxis_style, row=1, col=1)
 
-    fig.update_xaxes(fixedrange=True)
+    fig.update_xaxes(fixedrange=True, rangeslider_visible=False)
     fig.update_yaxes(
         fixedrange=True,
         showspikes=True,
@@ -1495,8 +1513,6 @@ def build_intraday_chart(
         hovermode="x unified",
         dragmode=False,
         spikedistance=-1,
-        xaxis_rangeslider_visible=False,
-        xaxis2_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 

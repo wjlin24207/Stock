@@ -5,9 +5,10 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas openpyxl
-    streamlit run taiex_intraday_app-v26.py
+    streamlit run taiex_intraday_app-v27.py
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 from pathlib import Path
 import re
@@ -651,68 +652,79 @@ def fetch_tw_market_daily_quotes() -> dict[str, dict]:
     return res
 
 
-def _fetch_yf_batch_quotes(yf_map: dict[str, str]) -> dict[str, dict]:
-    """透過 yfinance 批量下載近期日線 (threads=True)，相容單檔與多檔 DataFrame 結構"""
-    out: dict[str, dict] = {}
-    if not yf_map:
-        return out
-    tickers_list = list(yf_map.keys())
-    try:
-        hist = yf.download(
-            tickers=tickers_list,
-            period="5d",
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=True,
-        )
-        if hist is None or hist.empty or "Close" not in hist:
-            return out
+def _fetch_single_yf_quote(orig_code: str, is_tw: bool, market_hint: str) -> tuple[str, dict | None]:
+    """
+    使用單檔 yf.Ticker(sym).history(period="5d", interval="1d") 抓取最新收盤/盤中價與漲跌點，
+    徹底避開新版 yfinance 多層 MultiIndex 欄位結構差異；台股若 .TW 無資料會自動改試 .TWO。
+    """
+    if is_tw:
+        candidates = [f"{orig_code}.TWO", f"{orig_code}.TW"] if market_hint == "上櫃" else [f"{orig_code}.TW", f"{orig_code}.TWO"]
+    else:
+        candidates = [orig_code]
 
-        close_obj = hist["Close"]
-        if isinstance(close_obj, pd.Series):
-            sub = close_obj.dropna()
-            if len(sub) >= 1 and len(tickers_list) == 1:
-                orig_code = yf_map[tickers_list[0]]
-                curr_p = float(sub.iloc[-1])
-                prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
-                chg = round(curr_p - prev_p, 2)
-                chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                out[orig_code] = {
-                    "price": round(curr_p, 2),
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "name": "",
-                }
-        elif isinstance(close_obj, pd.DataFrame):
-            for yf_sym, orig_code in yf_map.items():
-                if yf_sym not in close_obj.columns:
-                    continue
-                sub = close_obj[yf_sym].dropna()
+    for sym in candidates:
+        try:
+            hist = yf.Ticker(sym).history(period="5d", interval="1d", auto_adjust=False)
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                sub = hist["Close"].dropna()
                 if len(sub) >= 1:
                     curr_p = float(sub.iloc[-1])
+                    if curr_p <= 0:
+                        continue
                     prev_p = float(sub.iloc[-2]) if len(sub) >= 2 else curr_p
                     chg = round(curr_p - prev_p, 2)
                     chg_pct = round((chg / prev_p) * 100.0, 2) if prev_p > 0 else 0.0
-                    out[orig_code] = {
+                    return orig_code, {
                         "price": round(curr_p, 2),
                         "change": chg,
                         "change_pct": chg_pct,
                         "name": "",
                     }
-    except Exception:
-        pass
+        except Exception:
+            continue
+
+    return orig_code, None
+
+
+def _fetch_yf_parallel_quotes(
+    missing_codes: list[str], tw_set: set[str], hint_map: dict[str, str]
+) -> dict[str, dict]:
+    """以執行緒池平行呼叫 yf.Ticker().history()，50 檔成分股約 1~2 秒內完成"""
+    out: dict[str, dict] = {}
+    if not missing_codes:
+        return out
+
+    max_workers = min(12, len(missing_codes))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                _fetch_single_yf_quote,
+                c,
+                c in tw_set,
+                hint_map.get(c, ""),
+            )
+            for c in missing_codes
+        ]
+        for fut in as_completed(futures):
+            try:
+                orig_code, res = fut.result()
+                if res is not None:
+                    out[orig_code] = res
+            except Exception:
+                continue
+
     return out
 
 
-def fetch_constituents_realtime_quotes(
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_constituents_quotes(
     codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]
 ) -> tuple[dict[str, dict], list[str]]:
     """
-    批量抓取成分股即時股價、漲跌點、漲跌幅，並回傳實際成功使用的資料來源標籤：
-      1. 證交所/櫃買中心全市場最新官方報價基準（盤後/假日不空窗）。
+    三層備援批量抓取成分股即時股價、漲跌點、漲跌幅：
+      1. 證交所/櫃買中心全市場最新官方報價基準。
       2. 證交所/櫃買中心盤中即時系統 (mis.twse.com.tw) 批量覆蓋最新盤中成交價。
-      3. 若仍有缺漏或海外成分股，以 yfinance 批量下載補齊。
+      3. 平行 yfinance 單檔歷史報價補齊（確保雲端機房即使被台股官網擋 IP 也能 100% 取得報價）。
     """
     if not codes:
         return {}, []
@@ -722,15 +734,12 @@ def fetch_constituents_realtime_quotes(
     quotes: dict[str, dict] = {}
     sources_used: list[str] = []
     tw_codes = []
-    foreign_codes = []
 
     for c in codes:
         if c in daily_base:
             quotes[c] = dict(daily_base[c])
         if re.fullmatch(r"\d{4,6}[A-Z]?", c):
             tw_codes.append(c)
-        else:
-            foreign_codes.append(c)
 
     if quotes:
         sources_used.append("證交所/櫃買官方行情")
@@ -791,23 +800,26 @@ def fetch_constituents_realtime_quotes(
         if got_intraday:
             sources_used.append("盤中即時報價")
 
-    # 3. 針對仍缺報價的台股或海外成分股，以 yfinance 批量下載補齊
+    # 3. 針對仍缺報價的台股或海外成分股，以平行 yfinance 補齊
     missing_codes = [c for c in codes if c not in quotes]
     if missing_codes:
-        yf_map = {}
-        for orig_code in missing_codes:
-            if orig_code in tw_codes:
-                suffix = ".TWO" if hint_map.get(orig_code) == "上櫃" else ".TW"
-                yf_map[f"{orig_code}{suffix}"] = orig_code
-            else:
-                yf_map[orig_code] = orig_code
-
-        yf_quotes = _fetch_yf_batch_quotes(yf_map)
+        yf_quotes = _fetch_yf_parallel_quotes(missing_codes, set(tw_codes), hint_map)
         if yf_quotes:
             quotes.update(yf_quotes)
             sources_used.append("Yahoo Finance")
 
     return quotes, sources_used
+
+
+def fetch_constituents_realtime_quotes(
+    codes: tuple[str, ...], market_hints: tuple[tuple[str, str], ...]
+) -> tuple[dict[str, dict], list[str]]:
+    """避免快取住完全空白的結果；若回傳為空則自動清快取重抓一次"""
+    q_map, srcs = _cached_constituents_quotes(codes, market_hints)
+    if not q_map and codes:
+        _cached_constituents_quotes.clear()
+        q_map, srcs = _cached_constituents_quotes(codes, market_hints)
+    return q_map, srcs
 
 
 # ==========================================

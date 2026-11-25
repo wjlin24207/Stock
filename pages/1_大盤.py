@@ -5,9 +5,10 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v31.py
+    streamlit run taiex_intraday_app-v32.py
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import time
 from datetime import datetime, timedelta
@@ -162,8 +163,7 @@ def _to_float(val):
 # ==========================================
 # 證交所 (TWSE) 大盤融資維持率（含 ETF / 全上市）官方實數計算
 # ==========================================
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_twse_close_prices_day(date_str: str) -> dict:
+def _raw_twse_close_prices_day(date_str: str) -> dict:
     """
     從證交所每日收盤行情 (MI_INDEX, type=ALLBUT0999) 抓取指定日期全上市個股與 ETF 價格，
     若當日無成交（收盤價為 --），依序以「最後揭示買價 / 最後揭示賣價」補值，回傳 {code: price}。
@@ -175,6 +175,7 @@ def _fetch_twse_close_prices_day(date_str: str) -> dict:
             params={"response": "json", "date": date_str, "type": "ALLBUT0999"},
             headers=HTTP_HEADERS,
             timeout=10,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -435,8 +436,7 @@ def _recent_weekday_dates(max_days: int = 16) -> list:
     return dates
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_twse_bfi82u_day(date_str: str):
+def _raw_twse_bfi82u_day(date_str: str):
     """抓取證交所大盤三大法人買賣金額統計表 (BFI82U)，單位：億元"""
     url = "https://www.twse.com.tw/rwd/zh/fund/BFI82U"
     try:
@@ -445,6 +445,7 @@ def _fetch_twse_bfi82u_day(date_str: str):
             params={"response": "json", "dayDate": date_str, "type": "day"},
             headers=HTTP_HEADERS,
             timeout=8,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -486,8 +487,7 @@ def _fetch_twse_bfi82u_day(date_str: str):
         return None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_twse_t86_day(date_str: str) -> dict:
+def _raw_twse_t86_day(date_str: str) -> dict:
     """抓取證交所指定日期全上市個股/ETF 三大法人買賣超 (T86)，單位：張"""
     url = "https://www.twse.com.tw/rwd/zh/fund/T86"
     try:
@@ -548,6 +548,11 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
         return result
     except Exception:
         return {}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_twse_t86_day(date_str: str) -> dict:
+    return _raw_twse_t86_day(date_str)
 
 
 def fetch_latest_twse_inst_top10(
@@ -618,8 +623,7 @@ def fetch_latest_twse_inst_top10(
     return df_buy, df_sell, trade_date_str
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_twse_margin_day(date_str: str):
+def _raw_twse_margin_day(date_str: str):
     """抓取證交所指定日期信用交易統計 (MI_MARGN, selectType=ALL)"""
     url = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
     try:
@@ -628,6 +632,7 @@ def _fetch_twse_margin_day(date_str: str):
             params={"response": "json", "date": date_str, "selectType": "ALL"},
             headers=HTTP_HEADERS,
             timeout=10,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -698,8 +703,7 @@ def _fetch_twse_margin_day(date_str: str):
         return None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_tpex_inst_day(date_fmt: str) -> dict:
+def _raw_tpex_inst_day(date_fmt: str) -> dict:
     """抓取櫃買中心指定日期全上櫃個股/ETF 三大法人買賣超，單位：張"""
     dt = datetime.strptime(date_fmt, "%Y-%m-%d")
     roc_date = f"{dt.year - 1911}/{dt.month:02d}/{dt.day:02d}"
@@ -718,7 +722,7 @@ def _fetch_tpex_inst_day(date_fmt: str) -> dict:
 
     for url, params in candidates:
         try:
-            resp = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=10)
+            resp = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=10, verify=False)
             resp.raise_for_status()
             data = resp.json()
 
@@ -772,8 +776,7 @@ def _fetch_tpex_inst_day(date_fmt: str) -> dict:
     return {}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_tpex_margin_day(date_fmt: str) -> dict:
+def _raw_tpex_margin_day(date_fmt: str) -> dict:
     """抓取櫃買中心指定日期全上櫃個股/ETF 融資融券餘額，單位：張"""
     dt = datetime.strptime(date_fmt, "%Y-%m-%d")
     roc_date = f"{dt.year - 1911}/{dt.month:02d}/{dt.day:02d}"
@@ -792,7 +795,7 @@ def _fetch_tpex_margin_day(date_fmt: str) -> dict:
 
     for url, params in candidates:
         try:
-            resp = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=10)
+            resp = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=10, verify=False)
             resp.raise_for_status()
             data = resp.json()
 
@@ -844,11 +847,12 @@ def _fetch_tpex_margin_day(date_fmt: str) -> dict:
     return {}
 
 
-def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_recent_5d_chips_cached(ticker: str, use_twse: bool, days: int = 5):
     """
-    取得近 5 個交易日的「三大法人買賣超」與「融資券變化」：
-      - 台灣加權指數 (^TWII)：三大法人、融資券與含 ETF 大盤融資維持率皆來自證交所官方即時 API。
-      - 上市/上櫃個股與 ETF (.TW / .TWO)：三大法人與融資券單位皆為「張」。
+    平行抓取近 5 個交易日的「三大法人買賣超」與「融資券變化」：
+      - 台灣加權指數 (^TWII)：平行抓齊 BFI82U、MI_MARGN 與 MI_INDEX，再計算含 ETF 大盤融資維持率。
+      - 上市/上櫃個股與 ETF (.TW / .TWO)：平行抓齊近 5 日三大法人與融資券（單位：張）。
     """
     is_taiex = use_twse or ticker == "^TWII"
     is_twse_stock = ticker.endswith(".TW")
@@ -857,37 +861,68 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
     if not (is_taiex or is_twse_stock or is_tpex_stock):
         return pd.DataFrame(), pd.DataFrame(), None
 
-    weekdays = _recent_weekday_dates(max_days=16)
+    weekdays = _recent_weekday_dates(max_days=10)
     inst_records = []
     margin_records = []
 
     if is_taiex:
-        # 多抓 1 個交易日 (days + 1) 供計算近 5 日維持率「較前日增減」與補齊無成交個股收盤價
-        raw_margin_days = []
-        for d in weekdays:
-            if len(inst_records) >= days and len(raw_margin_days) >= days + 1:
+        # 平行抓取近期交易日之三大法人 (BFI82U)、信用交易 (MI_MARGN) 與收盤行情 (MI_INDEX)
+        target_days = weekdays[: days + 2]
+        inst_by_date = {}
+        margin_by_date = {}
+        close_by_date = {}
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {}
+            for d in target_days:
+                dc = d.strftime("%Y%m%d")
+                futures[executor.submit(_raw_twse_bfi82u_day, dc)] = ("inst", dc)
+                futures[executor.submit(_raw_twse_margin_day, dc)] = ("margin", dc)
+                futures[executor.submit(_raw_twse_close_prices_day, dc)] = ("close", dc)
+
+            for fut in as_completed(futures):
+                kind, dc = futures[fut]
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if kind == "inst" and res:
+                    inst_by_date[dc] = res
+                elif kind == "margin" and res and res.get("market"):
+                    margin_by_date[dc] = res
+                elif kind == "close" and res:
+                    close_by_date[dc] = res
+
+        for d in target_days:
+            if len(inst_records) >= days:
                 break
-            d_compact = d.strftime("%Y%m%d")
-            d_label = d.strftime("%m/%d")
-            d_full = d.strftime("%Y-%m-%d")
+            dc = d.strftime("%Y%m%d")
+            if dc in inst_by_date:
+                inst_records.append(
+                    {
+                        "日期": d.strftime("%m/%d"),
+                        "完整日期": d.strftime("%Y-%m-%d"),
+                        **inst_by_date[dc],
+                    }
+                )
 
-            if len(inst_records) < days:
-                res_inst = _fetch_twse_bfi82u_day(d_compact)
-                if res_inst:
-                    inst_records.append({"日期": d_label, "完整日期": d_full, **res_inst})
-
-            if len(raw_margin_days) < days + 1:
-                res_m = _fetch_twse_margin_day(d_compact)
-                if res_m and res_m.get("market"):
-                    raw_margin_days.append(
-                        {
-                            "d_compact": d_compact,
-                            "d_label": d_label,
-                            "d_full": d_full,
-                            "market": dict(res_m["market"]),
-                            "stocks": res_m.get("stocks", {}),
-                        }
-                    )
+        # 多取 1 個交易日 (days + 1) 供計算近 5 日維持率「較前日增減」與補齊無成交個股收盤價
+        raw_margin_days = []
+        for d in target_days:
+            if len(raw_margin_days) >= days + 1:
+                break
+            dc = d.strftime("%Y%m%d")
+            if dc in margin_by_date:
+                res_m = margin_by_date[dc]
+                raw_margin_days.append(
+                    {
+                        "d_compact": dc,
+                        "d_label": d.strftime("%m/%d"),
+                        "d_full": d.strftime("%Y-%m-%d"),
+                        "market": dict(res_m["market"]),
+                        "stocks": res_m.get("stocks", {}),
+                    }
+                )
 
         # 由舊到新計算每日「含ETF維持率（證交所官方實數）」
         raw_margin_days.sort(key=lambda x: x["d_full"])
@@ -896,7 +931,7 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
 
         for item in raw_margin_days:
             d_full = item["d_full"]
-            close_map = _fetch_twse_close_prices_day(item["d_compact"])
+            close_map = close_by_date.get(item["d_compact"], {})
             r_incl = _calc_twse_incl_etf_ratio(
                 total_margin_loan_yi=item["market"]["融資餘額"],
                 stocks_margin=item["stocks"],
@@ -910,7 +945,6 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
                 }
             )
 
-        # 計算「較前日」增減，並擷取最近 5 個交易日
         df_maint_all = pd.DataFrame(maint_records)
         if not df_maint_all.empty:
             df_maint_all["較前日"] = df_maint_all["含ETF維持率"].diff().round(2)
@@ -937,22 +971,49 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
 
     elif is_twse_stock:
         code = ticker.rsplit(".", 1)[0]
-        for d in weekdays:
-            if len(inst_records) >= days and len(margin_records) >= days:
-                break
-            d_compact = d.strftime("%Y%m%d")
+        target_days = weekdays[: days + 2]
+        t86_by_date = {}
+        margin_by_date = {}
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {}
+            for d in target_days:
+                dc = d.strftime("%Y%m%d")
+                futures[executor.submit(_raw_twse_t86_day, dc)] = ("inst", dc)
+                futures[executor.submit(_raw_twse_margin_day, dc)] = ("margin", dc)
+
+            for fut in as_completed(futures):
+                kind, dc = futures[fut]
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if kind == "inst" and res:
+                    t86_by_date[dc] = res
+                elif kind == "margin" and res:
+                    margin_by_date[dc] = res
+
+        for d in target_days:
+            dc = d.strftime("%Y%m%d")
             d_label = d.strftime("%m/%d")
             d_full = d.strftime("%Y-%m-%d")
 
-            if len(inst_records) < days:
-                day_map = _fetch_twse_t86_day(d_compact)
-                if day_map:
-                    row = day_map.get(code, {"外資": 0.0, "投信": 0.0, "自營商": 0.0, "合計": 0.0})
-                    inst_records.append({"日期": d_label, "完整日期": d_full, **row})
+            if len(inst_records) < days and dc in t86_by_date:
+                row = t86_by_date[dc].get(code, {"外資": 0.0, "投信": 0.0, "自營商": 0.0, "合計": 0.0})
+                inst_records.append(
+                    {
+                        "日期": d_label,
+                        "完整日期": d_full,
+                        "外資": row["外資"],
+                        "投信": row["投信"],
+                        "自營商": row["自營商"],
+                        "合計": row["合計"],
+                    }
+                )
 
-            if len(margin_records) < days:
-                res_m = _fetch_twse_margin_day(d_compact)
-                if res_m and res_m.get("stocks") and code in res_m["stocks"]:
+            if len(margin_records) < days and dc in margin_by_date:
+                res_m = margin_by_date[dc]
+                if res_m.get("stocks") and code in res_m["stocks"]:
                     margin_records.append({"日期": d_label, "完整日期": d_full, **res_m["stocks"][code]})
 
         meta = {
@@ -964,21 +1025,39 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
 
     else:  # is_tpex_stock (.TWO)
         code = ticker.rsplit(".", 1)[0]
-        for d in weekdays:
-            if len(inst_records) >= days and len(margin_records) >= days:
-                break
+        target_days = weekdays[: days + 2]
+        inst_by_date = {}
+        margin_by_date = {}
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {}
+            for d in target_days:
+                df_str = d.strftime("%Y-%m-%d")
+                futures[executor.submit(_raw_tpex_inst_day, df_str)] = ("inst", df_str)
+                futures[executor.submit(_raw_tpex_margin_day, df_str)] = ("margin", df_str)
+
+            for fut in as_completed(futures):
+                kind, df_str = futures[fut]
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if kind == "inst" and res:
+                    inst_by_date[df_str] = res
+                elif kind == "margin" and res:
+                    margin_by_date[df_str] = res
+
+        for d in target_days:
             d_label = d.strftime("%m/%d")
             d_full = d.strftime("%Y-%m-%d")
 
-            if len(inst_records) < days:
-                day_map = _fetch_tpex_inst_day(d_full)
-                if day_map:
-                    row = day_map.get(code, {"外資": 0.0, "投信": 0.0, "自營商": 0.0, "合計": 0.0})
-                    inst_records.append({"日期": d_label, "完整日期": d_full, **row})
+            if len(inst_records) < days and d_full in inst_by_date:
+                row = inst_by_date[d_full].get(code, {"外資": 0.0, "投信": 0.0, "自營商": 0.0, "合計": 0.0})
+                inst_records.append({"日期": d_label, "完整日期": d_full, **row})
 
-            if len(margin_records) < days:
-                day_m = _fetch_tpex_margin_day(d_full)
-                if day_m and code in day_m:
+            if len(margin_records) < days and d_full in margin_by_date:
+                day_m = margin_by_date[d_full]
+                if code in day_m:
                     margin_records.append({"日期": d_label, "完整日期": d_full, **day_m[code]})
 
         meta = {
@@ -991,6 +1070,10 @@ def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
     df_inst = pd.DataFrame(inst_records).sort_values("完整日期").reset_index(drop=True) if inst_records else pd.DataFrame()
     df_margin = pd.DataFrame(margin_records).sort_values("完整日期").reset_index(drop=True) if margin_records else pd.DataFrame()
     return df_inst, df_margin, meta
+
+
+def fetch_recent_5d_chips(ticker: str, use_twse: bool, days: int = 5):
+    return _fetch_recent_5d_chips_cached(ticker, use_twse, days)
 
 
 # ==========================================
@@ -1920,7 +2003,13 @@ with st.container(border=True):
 
     with ctrl4:
         if st.button("🔄 立即手動更新", use_container_width=True):
-            st.cache_data.clear()
+            fetch_twse_realtime_quote.clear()
+            fetch_twse_5sec_turnover.clear()
+            fetch_twse_5sec_index.clear()
+            fetch_yfinance_intraday.clear()
+            fetch_daily_90d_data.clear()
+            _fetch_recent_5d_chips_cached.clear()
+            _fetch_twse_t86_day.clear()
             st.rerun()
 
     sub1, sub2 = st.columns([1.8, 4], vertical_alignment="center")
@@ -1941,13 +2030,30 @@ if search_not_found is not None:
     st.warning(f"找不到符合「**{search_not_found}**」的台股名稱或代碼，請確認名稱是否正確，或改輸入完整代碼（例如 `2308`、`2308.TW`、`QQQ`）。")
     st.stop()
 
-# 分頁切換：當日走勢 vs 近 90 日 K 線
-tab_intraday, tab_kline = st.tabs(["📊 當日分時走勢", "🕯️ 近 90 個交易日 K 線"])
+# 檢視模式切換（按需載入：開啟網頁時僅載入當日走勢，點選近 90 日 K 線才抓取日線資料）
+_view_options = ["📊 當日分時走勢", "🕯️ 近 90 個交易日 K 線"]
+if hasattr(st, "segmented_control"):
+    active_view = st.segmented_control(
+        "檢視模式",
+        _view_options,
+        default=_view_options[0],
+        label_visibility="collapsed",
+        key="main_view_selector",
+    ) or _view_options[0]
+else:
+    active_view = st.radio(
+        "檢視模式",
+        _view_options,
+        index=0,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="main_view_selector",
+    )
 
 # ------------------------------------------
-# Tab 1: 當日分時走勢 + 近 5 日三大法人與融資券表格（玩股網大盤融資維持率）
+# 檢視 1: 當日分時走勢 + 近 5 日三大法人與融資券表格
 # ------------------------------------------
-with tab_intraday:
+if active_view == "📊 當日分時走勢":
     with st.spinner(f"正在載入 {selected_name} 當日資料..."):
         df_intra, summary, trade_date, data_source = load_market_data(ticker, interval, tz_name, use_twse)
 
@@ -2217,9 +2323,9 @@ with tab_intraday:
                         )
 
 # ------------------------------------------
-# Tab 2: 近 90 個交易日 K 線 + 日成交量 + KD(9,3,3)
+# 檢視 2: 近 90 個交易日 K 線 + 日成交量 + KD(9,3,3)
 # ------------------------------------------
-with tab_kline:
+else:
     ind_col1, ind_col2, ind_col3, ind_col4 = st.columns(4)
     with ind_col1:
         show_ma5 = st.checkbox("5日線 (MA5)", value=True)
@@ -2256,5 +2362,8 @@ with tab_kline:
 
 if auto_refresh:
     time.sleep(refresh_sec)
-    st.cache_data.clear()
+    fetch_twse_realtime_quote.clear()
+    fetch_twse_5sec_turnover.clear()
+    fetch_twse_5sec_index.clear()
+    fetch_yfinance_intraday.clear()
     st.rerun()

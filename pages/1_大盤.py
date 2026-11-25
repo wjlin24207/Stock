@@ -5,7 +5,7 @@
     將此檔案放入專案的 pages/ 資料夾（例如 pages/1_大盤.py）
 執行方式:
     pip install streamlit requests yfinance plotly pandas
-    streamlit run taiex_intraday_app-v30.py
+    streamlit run taiex_intraday_app-v31.py
 """
 
 import re
@@ -496,6 +496,7 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
             params={"response": "json", "date": date_str, "selectType": "ALLBUT0999"},
             headers=HTTP_HEADERS,
             timeout=10,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -511,6 +512,7 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
             return None
 
         idx_code = 0
+        idx_name = fields.index("證券名稱") if "證券名稱" in fields else (1 if len(fields) > 1 else None)
         idx_f1 = find_idx(("外陸資", "買賣超"), ("自營商",))
         idx_f2 = find_idx(("外資自營商", "買賣超"))
         idx_trust = find_idx(("投信", "買賣超"))
@@ -522,6 +524,11 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
             if len(row) <= idx_code:
                 continue
             code = str(row[idx_code]).strip().upper()
+            name = (
+                str(row[idx_name]).strip()
+                if (idx_name is not None and idx_name < len(row))
+                else ""
+            )
             f_val = (_to_float(row[idx_f1]) or 0.0) if idx_f1 is not None and idx_f1 < len(row) else 0.0
             f2_val = (_to_float(row[idx_f2]) or 0.0) if idx_f2 is not None and idx_f2 < len(row) else 0.0
             t_val = (_to_float(row[idx_trust]) or 0.0) if idx_trust is not None and idx_trust < len(row) else 0.0
@@ -532,6 +539,7 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
                 else (f_val + f2_val + t_val + d_val)
             )
             result[code] = {
+                "名稱": name,
                 "外資": round((f_val + f2_val) / 1000.0, 1),
                 "投信": round(t_val / 1000.0, 1),
                 "自營商": round(d_val / 1000.0, 1),
@@ -540,6 +548,74 @@ def _fetch_twse_t86_day(date_str: str) -> dict:
         return result
     except Exception:
         return {}
+
+
+def fetch_latest_twse_inst_top10(
+    sort_col: str = "合計",
+    exclude_etf: bool = False,
+    top_n: int = 10,
+    name_fallback: dict | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, str | None]:
+    """
+    取得最近一個有盤後資料的交易日，上市三大法人買超前 N 名與賣超前 N 名排行（單位：張）。
+    回傳: (df_buy_top10, df_sell_top10, trade_date_str)
+    """
+    weekdays = _recent_weekday_dates(max_days=10)
+    day_map = {}
+    trade_date_str = None
+    for d in weekdays:
+        d_compact = d.strftime("%Y%m%d")
+        res = _fetch_twse_t86_day(d_compact)
+        if res:
+            day_map = res
+            trade_date_str = d.strftime("%Y-%m-%d")
+            break
+
+    if not day_map:
+        return pd.DataFrame(), pd.DataFrame(), None
+
+    fallback = name_fallback or {}
+    rows = []
+    for code, info in day_map.items():
+        if exclude_etf and code.startswith("00"):
+            continue
+        disp_name = info.get("名稱") or fallback.get(code, "")
+        rows.append(
+            {
+                "代碼": code,
+                "名稱": disp_name,
+                "外資": info.get("外資", 0.0),
+                "投信": info.get("投信", 0.0),
+                "自營商": info.get("自營商", 0.0),
+                "合計": info.get("合計", 0.0),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(), pd.DataFrame(), trade_date_str
+
+    df_all = pd.DataFrame(rows)
+    col = sort_col if sort_col in ("外資", "投信", "自營商", "合計") else "合計"
+
+    df_buy = (
+        df_all[df_all[col] > 0]
+        .sort_values(by=[col, "合計"], ascending=[False, False])
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+    if not df_buy.empty:
+        df_buy.insert(0, "名次", range(1, len(df_buy) + 1))
+
+    df_sell = (
+        df_all[df_all[col] < 0]
+        .sort_values(by=[col, "合計"], ascending=[True, True])
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+    if not df_sell.empty:
+        df_sell.insert(0, "名次", range(1, len(df_sell) + 1))
+
+    return df_buy, df_sell, trade_date_str
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -2057,6 +2133,88 @@ with tab_intraday:
                     "資料來源：臺灣證券交易所官方即時計算（全上市含 ETF 融資市值 ÷ 總融資金額）。"
                     "`<140%` 黃字警戒、`<130%` 紅字追繳區。"
                 )
+
+            # ---- 大盤專用：三大法人買賣超前 10 名排行（張） ----
+            st.divider()
+            ctrl_r1, ctrl_r2 = st.columns([3.2, 1.8], vertical_alignment="center")
+            with ctrl_r1:
+                rank_criterion = st.radio(
+                    "排行依據",
+                    ["三大法人合計", "外資", "投信", "自營商"],
+                    horizontal=True,
+                    key="taiex_inst_rank_criterion",
+                )
+            with ctrl_r2:
+                exclude_etf_rank = st.checkbox(
+                    "排除 ETF（僅看個股）",
+                    value=False,
+                    key="taiex_inst_exclude_etf",
+                )
+
+            sort_col_map = {
+                "三大法人合計": "合計",
+                "外資": "外資",
+                "投信": "投信",
+                "自營商": "自營商",
+            }
+            sort_key = sort_col_map[rank_criterion]
+            name_lookup = {item["code"]: item["name"] for item in tw_directory}
+
+            with st.spinner("正在載入上市三大法人買賣超前 10 名排行..."):
+                df_buy10, df_sell10, rank_date = fetch_latest_twse_inst_top10(
+                    sort_col=sort_key,
+                    exclude_etf=exclude_etf_rank,
+                    top_n=10,
+                    name_fallback=name_lookup,
+                )
+
+            if rank_date is None:
+                st.warning("暫無近期上市三大法人買賣超排行資料（可能尚未盤後公布）。")
+            else:
+                st.caption(
+                    f"資料日期：**{rank_date}** ｜ 單位：**張** ｜ "
+                    f"排序依據：**{rank_criterion}** ｜ 資料來源：臺灣證券交易所 (T86)"
+                )
+                disp_cols = (
+                    ["名次", "代碼", "名稱", "自營商", "合計"]
+                    if sort_key == "自營商"
+                    else ["名次", "代碼", "名稱", "外資", "投信", "合計"]
+                )
+                num_cols = [c for c in disp_cols if c in ("外資", "投信", "自營商", "合計")]
+                fmt_rank = {c: "{:+,.0f}" for c in num_cols}
+
+                rank_col1, rank_col2 = st.columns(2)
+                with rank_col1:
+                    st.markdown(
+                        f'<div class="section-title">📈 {rank_criterion}買超前 10 名 (張)</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if df_buy10.empty:
+                        st.info("無買超資料。")
+                    else:
+                        st.dataframe(
+                            df_buy10[disp_cols].style.map(
+                                _style_signed_val, subset=num_cols
+                            ).format(fmt_rank),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                with rank_col2:
+                    st.markdown(
+                        f'<div class="section-title">📉 {rank_criterion}賣超前 10 名 (張)</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if df_sell10.empty:
+                        st.info("無賣超資料。")
+                    else:
+                        st.dataframe(
+                            df_sell10[disp_cols].style.map(
+                                _style_signed_val, subset=num_cols
+                            ).format(fmt_rank),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
 
 # ------------------------------------------
 # Tab 2: 近 90 個交易日 K 線 + 日成交量 + KD(9,3,3)
